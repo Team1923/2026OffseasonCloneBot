@@ -48,7 +48,8 @@ public class RollerFloorSubsystem extends SubsystemBase {
   public boolean isAtRollerFloorState(RollerFloorState state) {
     if (state.request instanceof VelocityVoltage) {
       VelocityVoltage stateVelo = (VelocityVoltage) state.request;
-      return (Math.abs((stateVelo.Velocity * 60) - getRollerFloorSpeed()) < RollerFloorConstants.ROLLERFLOOR_rpmTOLERANCE);
+      return (Math
+          .abs((stateVelo.Velocity * 60) - getRollerFloorSpeed()) < RollerFloorConstants.ROLLERFLOOR_rpmTOLERANCE);
     } else
       return true;
   }
