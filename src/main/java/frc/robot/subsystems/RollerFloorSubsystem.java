@@ -10,6 +10,7 @@ import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 
+import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.RollerFloorConstants;
 
@@ -55,5 +56,27 @@ public class RollerFloorSubsystem extends SubsystemBase {
   @Override
   public void periodic() {
     // This method will be called once per scheduler run
+  }
+
+  public Command rest() {
+    return run(() -> {
+      setRollerFloorState(RollerFloorState.REST);
+    }).withName("RollerFloorRest");
+  }
+
+  public Command spin() {
+    return runEnd(() -> {
+      setRollerFloorState(RollerFloorState.SPINNING);
+    }, () -> {
+      setRollerFloorState(RollerFloorState.REST);
+    }).withName("RollerFloorSpin");
+  }
+
+  public Command eject() {
+    return runEnd(() -> {
+      setRollerFloorState(RollerFloorState.EJECT);
+    }, () -> {
+      setRollerFloorState(RollerFloorState.REST);
+    }).withName("RollerFloorEject");
   }
 }
