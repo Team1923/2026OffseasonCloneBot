@@ -118,4 +118,29 @@ public final class Constants {
         new PathConstraints(2.25, 2.25, Units.degreesToRadians(360),
             Units.degreesToRadians(360));
   }
+
+  public static final class RollerFloorConstants {
+    public static final int ROLLERFLOOR_ID = 0;
+    public static final double ROLLERFLOOR_RATIO = 0;
+    public static final double ROLLERFLOOR_rpmTOLERANCE = 0;
+
+    public static final TalonFXConfiguration ROLLERFLOOR_CONFIG = new TalonFXConfiguration()
+        .withCurrentLimits(
+            new CurrentLimitsConfigs()
+                .withStatorCurrentLimitEnable(true)
+                .withSupplyCurrentLimitEnable(true)
+                .withStatorCurrentLimit(0)
+                .withSupplyCurrentLimit(0)
+        )
+        .withFeedback(
+            new FeedbackConfigs()
+                .withSensorToMechanismRatio(ROLLERFLOOR_RATIO))
+        .withMotorOutput(new MotorOutputConfigs()
+            .withInverted(InvertedValue.Clockwise_Positive)
+            .withNeutralMode(NeutralModeValue.Coast))
+        .withSlot0(new Slot0Configs()
+            .withKP(0)
+            .withKV(0)
+        );
+    }
 }
