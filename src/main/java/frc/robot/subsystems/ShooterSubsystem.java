@@ -10,10 +10,12 @@ import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.MotorAlignmentValue;
 
+import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 
 import frc.robot.Constants;
+import frc.robot.StateHandler;
 
 public class ShooterSubsystem extends SubsystemBase {
   public static enum ShooterHoodState {
@@ -65,8 +67,69 @@ public class ShooterSubsystem extends SubsystemBase {
     shooterDrumFollowerMotor3.setControl(new Follower(shooterDrumMotor.getDeviceID(), MotorAlignmentValue.Opposed));
   }
 
+  public double getHoodPosition() {
+    return Units.rotationsToDegrees(shooterHoodMotor.getPosition().getValueAsDouble());
+  }
+
+  public double getDrumSpeedRPM() {
+    return shooterDrumMotor.getVelocity().getValueAsDouble() * 60.0;
+  }
+
+  public void setShooterHoodState(ShooterHoodState state) {
+    shooterHoodMotor.setControl(state.request);
+  }
+
+  public void setShooterDrumState(ShooterDrumState state) {
+    shooterDrumMotor.setControl(state.request);
+  }
+
+  public boolean isAtShooterHoodState(ShooterHoodState state) {
+    return Math.abs(getHoodPosition() - Units.rotationsToDegrees(state.request.Position))
+      < Constants.ShooterConstants.hoodAllowanceDegrees;
+  }
+
+  public boolean isAtShooterDrumState(ShooterDrumState state) {
+    return Math.abs(getDrumSpeedRPM() - state.request.Velocity * 60.0)
+      < Constants.ShooterConstants.drumAllowanceRPM;
+  }
+
+  public Command aimAtHub() {
+    return runEnd(() -> {
+      StateHandler.getStateHandler().desiredHoodState = ShooterHoodState.TRACKING;
+      StateHandler.getStateHandler().desiredDrumState = ShooterDrumState.WARMING;
+    }, () -> {
+      StateHandler.getStateHandler().desiredHoodState = ShooterHoodState.STOWED;
+      StateHandler.getStateHandler().desiredDrumState = ShooterDrumState.IDLE;
+    }).withName("ShooterAimAtHub");
+  }
+
+  public Command ferry() {
+    return runEnd(() -> {
+      StateHandler.getStateHandler().desiredHoodState = ShooterHoodState.FERRY;
+      StateHandler.getStateHandler().desiredDrumState = ShooterDrumState.FERRY;
+    }, () -> {
+      StateHandler.getStateHandler().desiredHoodState = ShooterHoodState.STOWED;
+      StateHandler.getStateHandler().desiredDrumState = ShooterDrumState.IDLE;
+    }).withName("ShooterFerry");
+  }
+
+  public Command rest() {
+    return run(() -> {
+      StateHandler.getStateHandler().desiredHoodState = ShooterHoodState.STOWED;
+      StateHandler.getStateHandler().desiredDrumState = ShooterDrumState.IDLE;
+    }).withName("ShooterRest");
+  }
+
   @Override
   public void periodic() {
-    // This method will be called once per scheduler run
+    setShooterHoodState(StateHandler.getStateHandler().desiredHoodState);
+    setShooterDrumState(StateHandler.getStateHandler().desiredDrumState);
+
+    if (isAtShooterHoodState(StateHandler.getStateHandler().desiredHoodState)) {
+      StateHandler.getStateHandler().currentHoodState = StateHandler.getStateHandler().desiredHoodState;
+    }
+    if (isAtShooterDrumState(StateHandler.getStateHandler().desiredDrumState)) {
+      StateHandler.getStateHandler().currentDrumState = StateHandler.getStateHandler().desiredDrumState;
+    }
   }
 }

@@ -2,6 +2,9 @@ package frc.robot;
 
 import frc.robot.subsystems.SwerveSubsystem.SwerveStates;
 
+import frc.robot.subsystems.ShooterSubsystem.ShooterHoodState;
+import frc.robot.subsystems.ShooterSubsystem.ShooterDrumState;
+
 /**
  * Shared swerve state retained from Rebuilt_2026.
  *
@@ -10,6 +13,11 @@ import frc.robot.subsystems.SwerveSubsystem.SwerveStates;
  */
 public final class StateHandler {
   private static StateHandler stateHandler;
+
+  public ShooterHoodState desiredHoodState = ShooterHoodState.STOWED;
+  public ShooterHoodState currentHoodState = ShooterHoodState.STOWED;
+  public ShooterDrumState desiredDrumState = ShooterDrumState.IDLE;
+  public ShooterDrumState currentDrumState = ShooterDrumState.IDLE;
 
   public double maxDriveSpeedMetersPerSecond = 3.75;
   public SwerveStates swerveState = SwerveStates.FIELD_CENTRIC;
