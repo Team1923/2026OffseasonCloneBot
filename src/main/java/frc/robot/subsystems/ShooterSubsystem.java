@@ -4,12 +4,16 @@
 
 package frc.robot.subsystems;
 
+import com.ctre.phoenix6.controls.Follower;
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.hardware.TalonFX;
+import com.ctre.phoenix6.signals.MotorAlignmentValue;
 
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
+
+import frc.robot.Constants;
 
 public class ShooterSubsystem extends SubsystemBase {
   public static enum ShooterHoodState {
@@ -45,14 +49,21 @@ public class ShooterSubsystem extends SubsystemBase {
     }
   }
 
-  private final TalonFX shooterHoodMotor = new TalonFX(0); // Placeholder ID for the hood motor
-  private final TalonFX shooterDrumMotor = new TalonFX(1); // Placeholder ID for the drum motor
-  private final TalonFX shooterDrumFollowerMotor = new TalonFX(2); // follower
-  private final TalonFX shooterDrumFollowerMotor2 = new TalonFX(3); // follower
-  private final TalonFX shooterDrumFollowerMotor3 = new TalonFX(4); // follower
+  private final TalonFX shooterHoodMotor = new TalonFX(Constants.ShooterConstants.shooterHoodID); // Placeholder ID for the hood motor
+  private final TalonFX shooterDrumMotor = new TalonFX(Constants.ShooterConstants.shooterDrumID); // Placeholder ID for the drum motor
+  private final TalonFX shooterDrumFollowerMotor = new TalonFX(Constants.ShooterConstants.shooterDrumFollowerID); // follower
+  private final TalonFX shooterDrumFollowerMotor2 = new TalonFX(Constants.ShooterConstants.shooterDrumFollowerID2); // follower
+  private final TalonFX shooterDrumFollowerMotor3 = new TalonFX(Constants.ShooterConstants.shooterDrumFollowerID3); // follower
 
   /** Creates a new ShooterSubsystem. */
-  public ShooterSubsystem() {}
+  public ShooterSubsystem() {
+    // Configure the follower motors to follow the main drum motor
+    shooterHoodMotor.getConfigurator().apply(Constants.ShooterConstants.HOOD_CONFIGS);
+    shooterDrumMotor.getConfigurator().apply(Constants.ShooterConstants.DRUM_CONFIGS);
+    shooterDrumFollowerMotor.setControl(new Follower(shooterDrumMotor.getDeviceID(), MotorAlignmentValue.Aligned));
+    shooterDrumFollowerMotor2.setControl(new Follower(shooterDrumMotor.getDeviceID(), MotorAlignmentValue.Opposed)); // not sure about orientation, seems correct
+    shooterDrumFollowerMotor3.setControl(new Follower(shooterDrumMotor.getDeviceID(), MotorAlignmentValue.Opposed));
+  }
 
   @Override
   public void periodic() {

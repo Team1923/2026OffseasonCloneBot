@@ -118,4 +118,55 @@ public final class Constants {
         new PathConstraints(2.25, 2.25, Units.degreesToRadians(360),
             Units.degreesToRadians(360));
   }
+
+    public static final class ShooterConstants {
+    public static final int shooterHoodID = 10;
+    public static final int shooterDrumID = 11;
+    public static final int shooterDrumFollowerID = 12;
+    public static final int shooterDrumFollowerID2 = 13;
+    public static final int shooterDrumFollowerID3 = 14;
+
+    public static final double HOOD_GEAR_RATIO = 1; // placeholder, get from CAD
+    public static final double DRUM_GEAR_RATIO = 1; // placeholder, get from CAD
+
+    public static final double hoodAllowanceDegrees = 0.5;
+    public static final double drumAllowanceRPM = 75;
+
+    public static final TalonFXConfiguration HOOD_CONFIGS = new TalonFXConfiguration()
+        .withCurrentLimits(
+            new CurrentLimitsConfigs()
+                .withStatorCurrentLimitEnable(true)
+                .withSupplyCurrentLimitEnable(true)
+                .withStatorCurrentLimit(40)
+                .withSupplyCurrentLimit(30))
+        .withSlot0(
+            new Slot0Configs()
+                .withKP(0).withKI(0).withKD(0).withKV(0).withKS(0))
+        .withMotorOutput(new MotorOutputConfigs()
+            .withNeutralMode(NeutralModeValue.Coast)
+            .withInverted(InvertedValue.Clockwise_Positive))
+        .withFeedback(new FeedbackConfigs()
+            .withSensorToMechanismRatio(HOOD_GEAR_RATIO))
+        .withSoftwareLimitSwitch(new SoftwareLimitSwitchConfigs()
+            .withForwardSoftLimitEnable(true)
+            .withReverseSoftLimitEnable(true)
+            .withForwardSoftLimitThreshold(Units.degreesToRotations(36))
+            .withReverseSoftLimitThreshold(Units.degreesToRotations(0)));
+
+    public static final TalonFXConfiguration DRUM_CONFIGS = new TalonFXConfiguration()
+        .withCurrentLimits(
+            new CurrentLimitsConfigs()
+                .withStatorCurrentLimitEnable(true)
+                .withSupplyCurrentLimitEnable(true)
+                .withStatorCurrentLimit(120)
+                .withSupplyCurrentLimit(60))
+        .withSlot0(
+            new Slot0Configs()
+                .withKP(0).withKI(0).withKD(0).withKV(0).withKS(0))
+        .withMotorOutput(new MotorOutputConfigs()
+            .withNeutralMode(NeutralModeValue.Coast)
+            .withInverted(InvertedValue.CounterClockwise_Positive))
+        .withFeedback(new FeedbackConfigs()
+            .withSensorToMechanismRatio(DRUM_GEAR_RATIO));
+  }
 }
