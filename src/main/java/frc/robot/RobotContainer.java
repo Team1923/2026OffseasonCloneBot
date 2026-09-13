@@ -8,6 +8,7 @@ import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import frc.robot.Constants.OperatorConstants;
+import frc.robot.commands.RobotCommands;
 import frc.robot.statemachines.IntakeStateMachine;
 import frc.robot.statemachines.RollersStateMachine;
 import frc.robot.statemachines.ShooterStateMachine;
@@ -34,7 +35,7 @@ public class RobotContainer {
       new CommandXboxController(OperatorConstants.OPERATOR_CONTROLLER_PORT);
 
   private SwerveSubsystem swerveSubsystem = SwerveSubsystem.getInstance();
-  private VisionSubsystem visionSubsystem = new VisionSubsystem();
+  private VisionSubsystem visionSubsystem = VisionSubsystem.getInstance();
   private IntakeSubsystem intakeSubsystem = new IntakeSubsystem();
   private RollersSubsystem rollersSubsystem = new RollersSubsystem();
   private ShooterSubsystem shooterSubsystem = new ShooterSubsystem();
@@ -70,16 +71,15 @@ public class RobotContainer {
     // Driver Bindings
     // command factories or compositions from RobotCommands here.
     driverController.leftTrigger().whileTrue(intakeSubsystem.intakeCommand());
-    driverController.rightTrigger().whileTrue(shooterSubsystem.shootCommand());
+    driverController.rightTrigger().whileTrue(RobotCommands.shootCommand(shooterSubsystem, swerveSubsystem, rollersSubsystem, null));
     driverController.leftBumper().whileTrue(shooterSubsystem.ferryCommand());
-    driverController.back().whileTrue(
-    intakeSubsystem.ejectCommand().alongWith(rollersSubsystem.ejectCommand()));
-
-
+    driverController.back().whileTrue(RobotCommands.ejectCommand(intakeSubsystem, rollersSubsystem));
 
     // Operator Bindings
     // Left unassigned until the operator control map is specified. Bind public subsystem
     // command factories or compositions from RobotCommands here.
+    
+    /* TODO: Ishaan complete operator bindings */
   }
 
   /**

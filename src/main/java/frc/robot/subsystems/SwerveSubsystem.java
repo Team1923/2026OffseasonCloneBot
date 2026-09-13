@@ -322,6 +322,7 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
                 .withName("SwerveFaceTarget");
     }
 
+    /* TODO: Aarav - is this isFacing method written correctly */
     public boolean isFacing(Pose2d target) {
         Pose2d pose = getPose();
         Rotation2d desiredHeading =

@@ -28,36 +28,22 @@ public final class IntakeStateMachine extends Command {
     IntakeArmState desiredIntakeArmState = stateHandler.desiredIntakeArmState;
     IntakeRollerState desiredIntakeRollerState = stateHandler.desiredIntakeRollerState;
 
-    DesiredStates desired =
-        resolve(
-            desiredIntakeArmState,
-            desiredIntakeRollerState,
-            intake.atArmState(desiredIntakeArmState));
-
-    intake.applyArmState(desired.arm());
-    intake.applyRollerState(desired.roller());
-
-    if (intake.atArmState(desired.arm())) {
-      stateHandler.currentIntakeArmState = desired.arm();
+    if (stateHandler.desiredIntakeRollerState == IntakeRollerState.INTAKE
+        && (stateHandler.currentIntakeArmState != stateHandler.desiredIntakeArmState)) {
+          stateHandler.desiredIntakeRollerState = IntakeRollerState.REST;
     }
-    if (intake.atRollerState(desired.roller())) {
-      stateHandler.currentIntakeRollerState = desired.roller();
+
+    intake.applyArmState(desiredIntakeArmState);
+    intake.applyRollerState(desiredIntakeRollerState);
+
+    if (intake.atArmState(desiredIntakeArmState)) {
+      stateHandler.currentIntakeArmState = desiredIntakeArmState;
+    }
+    if (intake.atRollerState(desiredIntakeRollerState)) {
+      stateHandler.currentIntakeRollerState = desiredIntakeRollerState;
     }
   }
 
-  /** Pure resolver kept public for focused state-transition tests. */
-  public static DesiredStates resolve(
-      IntakeArmState desiredArm,
-      IntakeRollerState desiredRoller,
-      boolean armAtDesiredState) {
-    // Do not pull a game piece into an intake that has not finished deploying.
-    if (desiredRoller == IntakeRollerState.INTAKE
-        && (desiredArm != IntakeArmState.DEPLOYED || !armAtDesiredState)) {
-      desiredRoller = IntakeRollerState.REST;
-    }
-
-    return new DesiredStates(desiredArm, desiredRoller);
-  }
 
   @Override
   public boolean isFinished() {

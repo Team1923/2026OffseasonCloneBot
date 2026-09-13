@@ -6,22 +6,38 @@ package frc.robot.subsystems;
 
 import com.ctre.phoenix6.Utils;
 
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import frc.robot.Constants;
 import frc.robot.StateHandler;
 import frc.robot.Constants.FieldConstants;
 import frc.robot.Constants.InterpolationConstants;
 import frc.robot.Constants.VisionConstants;
 import frc.robot.lib.vision.LimelightHelpers;
 import frc.robot.lib.vision.LimelightHelpers.PoseEstimate;
+
+import java.lang.Thread.State;
 import java.util.OptionalDouble;
 
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
 public final class VisionSubsystem extends SubsystemBase {
   private final SwerveSubsystem swerve = SwerveSubsystem.getInstance();
+
+  private static VisionSubsystem visionSubsystem;
+
+  public static synchronized VisionSubsystem getInstance() {
+    if (visionSubsystem == null) {
+      visionSubsystem = new VisionSubsystem();
+    }
+    return visionSubsystem;
+  }
 
   public VisionSubsystem() {
     swerve.setVisionMeasurementStdDevs(VecBuilder.fill(0.01, 0.01, 9_999_999));
@@ -81,6 +97,7 @@ public final class VisionSubsystem extends SubsystemBase {
 
   /** Seeds odometry from the front-right camera when MegaTag1 has a valid target. TODO: Should this MT1 Rezero be done with multiple limelights*/
   public void zeroPoseToMT1() {
+    // edit method so that this checks all limelights mt1 pose and takes the most "accurate one" - is there a metric from the network tables that tells us this?
     PoseEstimate estimate = getMT1FrontRight();
     if (estimate == null || estimate.tagCount == 0) {
       DriverStation.reportWarning("Could not zero pose: front-right Limelight has no target.", false);

@@ -11,6 +11,8 @@ import frc.robot.subsystems.IntakeSubsystem;
 import frc.robot.subsystems.RollersSubsystem;
 import frc.robot.subsystems.ShooterSubsystem;
 import frc.robot.subsystems.SwerveSubsystem;
+import frc.robot.subsystems.VisionSubsystem;
+
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -35,7 +37,7 @@ public final class RobotCommands {
       RollersSubsystem rollers,
       Supplier<Pose2d> targetSupplier) {
     BooleanSupplier feedAllowed =
-        () -> shooter.readyToShoot() && swerve.isFacing(targetSupplier.get()); // if isFacing doesn't work can remove
+        () -> shooter.readyToShoot() && swerve.isFacing(VisionSubsystem.getInstance().getAllianceHubPose()); // if isFacing doesn't work can remove
 
     return Commands.parallel(
             shooter.shootCommand(),
