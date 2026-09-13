@@ -93,14 +93,14 @@ public class ShooterSubsystem extends SubsystemBase {
       < Constants.ShooterConstants.drumAllowanceRPM;
   }
 
-  public Command aimAtHub() {
+  public Command shoot() {
     return runEnd(() -> {
       StateHandler.getStateHandler().desiredHoodState = ShooterHoodState.TRACKING;
-      StateHandler.getStateHandler().desiredDrumState = ShooterDrumState.WARMING;
+      StateHandler.getStateHandler().desiredDrumState = ShooterDrumState.SHOOTING;
     }, () -> {
       StateHandler.getStateHandler().desiredHoodState = ShooterHoodState.STOWED;
       StateHandler.getStateHandler().desiredDrumState = ShooterDrumState.IDLE;
-    }).withName("ShooterAimAtHub");
+    }).withName("ShooterShoot");
   }
 
   public Command ferry() {

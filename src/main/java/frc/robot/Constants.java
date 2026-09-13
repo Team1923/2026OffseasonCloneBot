@@ -18,6 +18,7 @@ import com.ctre.phoenix6.swerve.utility.PhoenixPIDController;
 import com.pathplanner.lib.path.PathConstraints;
 
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.math.interpolation.InterpolatingDoubleTreeMap;
 
 /**
  * The Constants class provides a convenient place for teams to hold robot-wide numerical or boolean
@@ -131,6 +132,10 @@ public final class Constants {
 
     public static final double hoodAllowanceDegrees = 0.5;
     public static final double drumAllowanceRPM = 75;
+
+    public static final InterpolatingDoubleTreeMap DISTANCE_TO_HOOD_DEGREES = new InterpolatingDoubleTreeMap();
+    public static final InterpolatingDoubleTreeMap DISTANCE_TO_DRUM_RPM = new InterpolatingDoubleTreeMap();
+
 
     public static final TalonFXConfiguration HOOD_CONFIGS = new TalonFXConfiguration()
         .withCurrentLimits(
