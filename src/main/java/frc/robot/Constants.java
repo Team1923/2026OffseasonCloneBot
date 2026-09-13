@@ -20,10 +20,26 @@ import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.interpolation.InterpolatingDoubleTreeMap;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.RobotBase;
 
 /** Robot-wide constants grouped by the subsystem that owns them. */
 public final class Constants {
   private Constants() {}
+
+  /** Selects which IO implementations are constructed and where AdvantageKit reads/writes logs. */
+  public enum Mode {
+    /** Running on a real robot. */
+    REAL,
+    /** Running a physics simulator. */
+    SIM,
+    /** Replaying inputs from a log file. */
+    REPLAY
+  }
+
+  /** Change to {@link Mode#REPLAY} to replay a log on the desktop instead of simulating. */
+  public static final Mode SIM_MODE = Mode.SIM;
+
+  public static final Mode CURRENT_MODE = RobotBase.isReal() ? Mode.REAL : SIM_MODE;
 
   public static final class OperatorConstants {
     public static final int DRIVER_CONTROLLER_PORT = 0;
@@ -46,6 +62,10 @@ public final class Constants {
     public static final double ROLLER_GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double ARM_POSITION_TOLERANCE_DEGREES = 10.0;
     public static final double ARM_ZERO_OFFSET_DEGREES = 0.0; // TODO: calibrate
+
+    // Simulation-only mechanism inertia. TODO: estimate from CAD
+    public static final double ARM_SIM_MOI_KG_METERS_SQUARED = 0.1;
+    public static final double ROLLER_SIM_MOI_KG_METERS_SQUARED = 0.001;
 
     public static final TalonFXConfiguration ARM_CONFIG =
         new TalonFXConfiguration()
@@ -103,6 +123,9 @@ public final class Constants {
     public static final double GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double RPM_TOLERANCE = 100.0; // TODO: tune
 
+    // Simulation-only mechanism inertia. TODO: estimate from CAD
+    public static final double SIM_MOI_KG_METERS_SQUARED = 0.002;
+
     public static final TalonFXConfiguration MOTOR_CONFIG =
         new TalonFXConfiguration()
             .withCurrentLimits(
@@ -133,6 +156,10 @@ public final class Constants {
     public static final double DRUM_GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double HOOD_TOLERANCE_DEGREES = 0.5;
     public static final double DRUM_TOLERANCE_RPM = 75.0;
+
+    // Simulation-only mechanism inertia. TODO: estimate from CAD
+    public static final double HOOD_SIM_MOI_KG_METERS_SQUARED = 0.01;
+    public static final double DRUM_SIM_MOI_KG_METERS_SQUARED = 0.01;
 
     public static final TalonFXConfiguration HOOD_CONFIG =
         new TalonFXConfiguration()

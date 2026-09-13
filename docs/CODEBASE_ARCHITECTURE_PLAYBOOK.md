@@ -9,11 +9,15 @@ and examples.
 
 ```text
 src/main/java/frc/robot/
-├── Robot.java                 lifecycle and scheduler only
-├── RobotContainer.java        construct once, defaults, and bindings
-├── Constants.java             one nested constants class per subsystem
+├── Robot.java                 lifecycle, scheduler, and AdvantageKit setup only
+├── RobotContainer.java        construct once (choosing IO per mode), defaults, and bindings
+├── Constants.java             robot mode plus one nested constants class per subsystem
 ├── StateHandler.java          desired/current states and shared robot facts
-├── subsystems/                hardware, sensors, states, simple commands
+├── subsystems/<name>/         one package per subsystem:
+│   ├── <Name>Subsystem.java     states, status methods, logging, simple commands
+│   ├── <Name>IO.java            IO interface + @AutoLog inputs (empty impl = replay)
+│   ├── <Name>IOTalonFX.java     real hardware (IOCTRE for swerve, IOLimelight for vision)
+│   └── <Name>IOSim.java         simulated hardware
 ├── statemachines/             continuous mechanism arbitration
 ├── commands/                  multi-subsystem or complicated actions
 └── lib/                       generated and reusable helpers
@@ -90,9 +94,28 @@ Commands v2 references:
 
 Use the imports supported by this project's installed WPILib version.
 
+## Logging and IO layers (AdvantageKit)
+
+The robot uses [AdvantageKit](https://docs.advantagekit.org/) so every match can
+be replayed. `Constants.CURRENT_MODE` is `REAL` on the roboRIO and `SIM_MODE`
+(`SIM` or `REPLAY`) on the desktop.
+
+- Hardware lives only in IO implementations. A subsystem never constructs a
+  `TalonFX`, `CANcoder`, or Limelight helper call directly; it holds an `IO`
+  passed in by `RobotContainer`.
+- Each subsystem's `periodic()` calls `io.updateInputs(inputs)` and then
+  `Logger.processInputs("<Name>", inputs)` before anything reads a sensor.
+  Status methods (`atState`, `getPose`, ...) read from `inputs`, never from
+  hardware, so replay produces the same decisions.
+- Every value the code decides (applied state, setpoint, accepted vision pose,
+  readiness) is recorded with `Logger.recordOutput`. `StateHandler.log()` records
+  all desired/current states each loop, and `Robot` records active commands.
+- To replay a log, set `SIM_MODE = Mode.REPLAY`, run the simulator, and pick the
+  `.wpilog`; the recomputed outputs are written to a `_sim` log for AdvantageScope.
+
 ## Subsystem contract
 
-Each mechanism subsystem owns:
+Each mechanism subsystem owns, through its IO layer:
 
 - every motor controller, encoder, beam break, range sensor, and other device
   physically attached to that mechanism;
@@ -118,8 +141,8 @@ its own Phoenix control request (`PositionVoltage`, `VelocityVoltage`,
 `VoltageOut`, `DutyCycleOut`, …) with the numeric setpoint written inline in the
 request, for example `INTAKE(new VoltageOut(8.5))` or
 `SHOOTING(rpmRequest(0))`. `applyState(...)` then does
-`motor.setControl(state.request)`, and `atState(...)` reads the target back off
-the same request. Distance-varying setpoints (drum RPM, hood angle) come from the
+`io.set…Control(state.request)` and logs the state and setpoint, and `atState(...)`
+reads the target back off the same request. Distance-varying setpoints (drum RPM, hood angle) come from the
 `InterpolationConstants` maps through Vision, not from a fixed enum value.
 
 ## State-machine contract
