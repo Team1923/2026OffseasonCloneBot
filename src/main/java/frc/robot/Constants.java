@@ -26,20 +26,28 @@ import edu.wpi.first.wpilibj.RobotBase;
 public final class Constants {
   private Constants() {}
 
-  /** Selects which IO implementations are constructed and where AdvantageKit reads/writes logs. */
-  public enum Mode {
-    /** Running on a real robot. */
-    REAL,
-    /** Running a physics simulator. */
-    SIM,
-    /** Replaying inputs from a log file. */
-    REPLAY
+  /** AdvantageKit logging and robot mode. */
+  public static final class LoggingConstants {
+    /** Selects which IO implementations are constructed and where logs are read/written. */
+    public enum Mode {
+      /** Running on a real robot. */
+      REAL,
+      /** Running a physics simulator. */
+      SIM,
+      /** Replaying inputs from a log file. */
+      REPLAY
+    }
+
+    /** Change to {@link Mode#REPLAY} to replay a log on the desktop instead of simulating. */
+    public static final Mode SIM_MODE = Mode.SIM;
+
+    public static final Mode CURRENT_MODE = RobotBase.isReal() ? Mode.REAL : SIM_MODE;
+
+    /** Recorded as metadata in every log. */
+    public static final String PROJECT_NAME = "2026OffseasonCloneBot";
+
+    private LoggingConstants() {}
   }
-
-  /** Change to {@link Mode#REPLAY} to replay a log on the desktop instead of simulating. */
-  public static final Mode SIM_MODE = Mode.SIM;
-
-  public static final Mode CURRENT_MODE = RobotBase.isReal() ? Mode.REAL : SIM_MODE;
 
   public static final class OperatorConstants {
     public static final int DRIVER_CONTROLLER_PORT = 0;
@@ -55,8 +63,9 @@ public final class Constants {
   }
 
   public static final class IntakeConstants {
-    public static final int ARM_MOTOR_ID = 0;
-    public static final int ROLLER_MOTOR_ID = 0;
+    // TODO: placeholder IDs; they only need to be unique so the devices don't collide in sim
+    public static final int ARM_MOTOR_ID = 15;
+    public static final int ROLLER_MOTOR_ID = 16;
 
     public static final double ARM_GEAR_RATIO = 1.0;
     public static final double ROLLER_GEAR_RATIO = 1.0; // TODO: get from CAD
@@ -119,7 +128,7 @@ public final class Constants {
   }
 
   public static final class RollersConstants {
-    public static final int MOTOR_ID = 0;
+    public static final int MOTOR_ID = 17; // TODO: placeholder ID, unique so sim devices don't collide
     public static final double GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double RPM_TOLERANCE = 100.0; // TODO: tune
 

@@ -8,6 +8,7 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import frc.robot.Constants.LoggingConstants;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.BiConsumer;
@@ -35,20 +36,9 @@ public class Robot extends LoggedRobot {
    */
   public Robot() {
     // AdvantageKit must be configured and started before any subsystem or IO is constructed.
-    Logger.recordMetadata("ProjectName", BuildConstants.MAVEN_NAME);
-    Logger.recordMetadata("BuildDate", BuildConstants.BUILD_DATE);
-    Logger.recordMetadata("GitSHA", BuildConstants.GIT_SHA);
-    Logger.recordMetadata("GitDate", BuildConstants.GIT_DATE);
-    Logger.recordMetadata("GitBranch", BuildConstants.GIT_BRANCH);
-    Logger.recordMetadata(
-        "GitDirty",
-        switch (BuildConstants.DIRTY) {
-          case 0 -> "All changes committed";
-          case 1 -> "Uncommitted changes";
-          default -> "Unknown";
-        });
+    Logger.recordMetadata("ProjectName", LoggingConstants.PROJECT_NAME);
 
-    switch (Constants.CURRENT_MODE) {
+    switch (LoggingConstants.CURRENT_MODE) {
       case REAL, SIM -> {
         // Write a .wpilog (USB stick on the roboRIO, logs/ in sim) and publish live to NT
         Logger.addDataReceiver(new WPILOGWriter());

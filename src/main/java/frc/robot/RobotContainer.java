@@ -7,6 +7,7 @@ package frc.robot;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
+import frc.robot.Constants.LoggingConstants;
 import frc.robot.Constants.OperatorConstants;
 import frc.robot.Constants.VisionConstants;
 import frc.robot.statemachines.IntakeStateMachine;
@@ -14,20 +15,13 @@ import frc.robot.statemachines.RollersStateMachine;
 import frc.robot.statemachines.ShooterStateMachine;
 import frc.robot.statemachines.SwerveStateMachine;
 import frc.robot.subsystems.intake.IntakeIO;
-import frc.robot.subsystems.intake.IntakeIOSim;
-import frc.robot.subsystems.intake.IntakeIOTalonFX;
 import frc.robot.subsystems.intake.IntakeSubsystem;
 import frc.robot.subsystems.rollers.RollersIO;
-import frc.robot.subsystems.rollers.RollersIOSim;
-import frc.robot.subsystems.rollers.RollersIOTalonFX;
 import frc.robot.subsystems.rollers.RollersSubsystem;
 import frc.robot.subsystems.shooter.ShooterIO;
-import frc.robot.subsystems.shooter.ShooterIOSim;
-import frc.robot.subsystems.shooter.ShooterIOTalonFX;
 import frc.robot.subsystems.shooter.ShooterSubsystem;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
 import frc.robot.subsystems.vision.VisionIO;
-import frc.robot.subsystems.vision.VisionIOLimelight;
 import frc.robot.subsystems.vision.VisionSubsystem;
 
 /**
@@ -54,25 +48,25 @@ public class RobotContainer {
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
-    switch (Constants.CURRENT_MODE) {
+    switch (LoggingConstants.CURRENT_MODE) {
       case REAL -> {
         visionSubsystem =
             new VisionSubsystem(
-                new VisionIOLimelight(VisionConstants.FRONT_LEFT_LIMELIGHT),
-                new VisionIOLimelight(VisionConstants.FRONT_RIGHT_LIMELIGHT),
-                new VisionIOLimelight(VisionConstants.REAR_LEFT_LIMELIGHT),
-                new VisionIOLimelight(VisionConstants.REAR_RIGHT_LIMELIGHT));
-        intakeSubsystem = new IntakeSubsystem(new IntakeIOTalonFX());
-        rollersSubsystem = new RollersSubsystem(new RollersIOTalonFX());
-        shooterSubsystem = new ShooterSubsystem(new ShooterIOTalonFX());
+                new VisionIO.Limelight(VisionConstants.FRONT_LEFT_LIMELIGHT),
+                new VisionIO.Limelight(VisionConstants.FRONT_RIGHT_LIMELIGHT),
+                new VisionIO.Limelight(VisionConstants.REAR_LEFT_LIMELIGHT),
+                new VisionIO.Limelight(VisionConstants.REAR_RIGHT_LIMELIGHT));
+        intakeSubsystem = new IntakeSubsystem(new IntakeIO.Real());
+        rollersSubsystem = new RollersSubsystem(new RollersIO.Real());
+        shooterSubsystem = new ShooterSubsystem(new ShooterIO.Real());
       }
       case SIM -> {
         // Limelights are not simulated; vision contributes no measurements in sim.
         visionSubsystem =
             new VisionSubsystem(new VisionIO() {}, new VisionIO() {}, new VisionIO() {}, new VisionIO() {});
-        intakeSubsystem = new IntakeSubsystem(new IntakeIOSim());
-        rollersSubsystem = new RollersSubsystem(new RollersIOSim());
-        shooterSubsystem = new ShooterSubsystem(new ShooterIOSim());
+        intakeSubsystem = new IntakeSubsystem(new IntakeIO.Sim());
+        rollersSubsystem = new RollersSubsystem(new RollersIO.Sim());
+        shooterSubsystem = new ShooterSubsystem(new ShooterIO.Sim());
       }
       default -> {
         // Replay: no hardware, every input comes from the log.

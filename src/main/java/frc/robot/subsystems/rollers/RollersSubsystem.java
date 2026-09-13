@@ -36,7 +36,7 @@ public final class RollersSubsystem extends SubsystemBase {
 
   private final StateHandler stateHandler = StateHandler.getInstance();
   private final RollersIO io;
-  private final RollersIOInputsAutoLogged inputs = new RollersIOInputsAutoLogged();
+  private final RollersIO.RollersIOInputs inputs = new RollersIO.RollersIOInputs();
 
   private final Alert floorDisconnectedAlert =
       new Alert("Roller floor motor disconnected", AlertType.kError);

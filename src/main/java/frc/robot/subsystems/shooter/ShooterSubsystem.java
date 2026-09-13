@@ -57,7 +57,7 @@ public final class ShooterSubsystem extends SubsystemBase {
 
   private final StateHandler stateHandler = StateHandler.getInstance();
   private final ShooterIO io;
-  private final ShooterIOInputsAutoLogged inputs = new ShooterIOInputsAutoLogged();
+  private final ShooterIO.ShooterIOInputs inputs = new ShooterIO.ShooterIOInputs();
 
   private final Alert hoodDisconnectedAlert =
       new Alert("Shooter hood motor disconnected", AlertType.kError);

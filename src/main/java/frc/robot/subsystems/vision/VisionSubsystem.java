@@ -24,17 +24,17 @@ public final class VisionSubsystem extends SubsystemBase {
   private final SwerveSubsystem swerve = SwerveSubsystem.getInstance();
 
   private final VisionIO[] io;
-  private final VisionIOInputsAutoLogged[] inputs;
+  private final VisionIO.VisionIOInputs[] inputs;
   private final Alert[] disconnectedAlerts;
 
   /** Cameras are passed in the order front left, front right, rear left, rear right. */
   public VisionSubsystem(
       VisionIO frontLeft, VisionIO frontRight, VisionIO rearLeft, VisionIO rearRight) {
     io = new VisionIO[] {frontLeft, frontRight, rearLeft, rearRight};
-    inputs = new VisionIOInputsAutoLogged[io.length];
+    inputs = new VisionIO.VisionIOInputs[io.length];
     disconnectedAlerts = new Alert[io.length];
     for (int i = 0; i < io.length; i++) {
-      inputs[i] = new VisionIOInputsAutoLogged();
+      inputs[i] = new VisionIO.VisionIOInputs();
       disconnectedAlerts[i] =
           new Alert("Limelight " + CAMERA_NAMES[i] + " disconnected", AlertType.kWarning);
     }

@@ -49,7 +49,7 @@ public final class IntakeSubsystem extends SubsystemBase {
 
   private final StateHandler stateHandler = StateHandler.getInstance();
   private final IntakeIO io;
-  private final IntakeIOInputsAutoLogged inputs = new IntakeIOInputsAutoLogged();
+  private final IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
 
   private final Alert armDisconnectedAlert =
       new Alert("Intake arm motor disconnected", AlertType.kError);

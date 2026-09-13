@@ -36,7 +36,7 @@ import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.Constants;
 import frc.robot.StateHandler;
-import frc.robot.lib.swerve.TunerConstants;
+import frc.robot.Constants.LoggingConstants;
 import org.littletonrobotics.junction.Logger;
 
 /**
@@ -50,9 +50,9 @@ public class SwerveSubsystem extends SubsystemBase {
     public static synchronized SwerveSubsystem getInstance() {
         if (swerveSubsystem == null) {
             swerveSubsystem = new SwerveSubsystem(
-                    switch (Constants.CURRENT_MODE) {
-                        case REAL -> TunerConstants.createDrivetrain();
-                        case SIM -> TunerConstants.createSimDrivetrain();
+                    switch (LoggingConstants.CURRENT_MODE) {
+                        case REAL -> new SwerveIO.Real();
+                        case SIM -> new SwerveIO.Sim();
                         case REPLAY -> new SwerveIO() {};
                     });
         }
@@ -67,7 +67,7 @@ public class SwerveSubsystem extends SubsystemBase {
     }
 
     private final SwerveIO io;
-    private final SwerveIOInputsAutoLogged inputs = new SwerveIOInputsAutoLogged();
+    private final SwerveIO.SwerveIOInputs inputs = new SwerveIO.SwerveIOInputs();
 
     private final Alert gyroDisconnectedAlert = new Alert("Swerve gyro disconnected", AlertType.kError);
     private final Alert[] moduleDisconnectedAlerts = new Alert[SwerveIO.MODULE_COUNT];

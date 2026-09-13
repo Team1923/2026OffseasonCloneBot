@@ -11,13 +11,11 @@ and examples.
 src/main/java/frc/robot/
 ├── Robot.java                 lifecycle, scheduler, and AdvantageKit setup only
 ├── RobotContainer.java        construct once (choosing IO per mode), defaults, and bindings
-├── Constants.java             robot mode plus one nested constants class per subsystem
+├── Constants.java             one nested constants class per subsystem (+ LoggingConstants)
 ├── StateHandler.java          desired/current states and shared robot facts
 ├── subsystems/<name>/         one package per subsystem:
 │   ├── <Name>Subsystem.java     states, status methods, logging, simple commands
-│   ├── <Name>IO.java            IO interface + @AutoLog inputs (empty impl = replay)
-│   ├── <Name>IOTalonFX.java     real hardware (IOCTRE for swerve, IOLimelight for vision)
-│   └── <Name>IOSim.java         simulated hardware
+│   └── <Name>IO.java            inputs, IO interface, and its Real and Sim classes
 ├── statemachines/             continuous mechanism arbitration
 ├── commands/                  multi-subsystem or complicated actions
 └── lib/                       generated and reusable helpers
@@ -97,8 +95,17 @@ Use the imports supported by this project's installed WPILib version.
 ## Logging and IO layers (AdvantageKit)
 
 The robot uses [AdvantageKit](https://docs.advantagekit.org/) so every match can
-be replayed. `Constants.CURRENT_MODE` is `REAL` on the roboRIO and `SIM_MODE`
-(`SIM` or `REPLAY`) on the desktop.
+be replayed. `LoggingConstants.CURRENT_MODE` is `REAL` on the roboRIO and
+`SIM_MODE` (`SIM` or `REPLAY`) on the desktop.
+
+Each `<Name>IO.java` holds everything hardware-facing for that subsystem:
+
+- `<Name>IOInputs` — every sensor value, with hand-written `toLog`/`fromLog`.
+  When you add a field, add it to both; `LoggableInputsTest` fails if a field is
+  not logged.
+- the `<Name>IO` interface — empty default methods, used as-is for replay.
+- `<Name>IO.Real` — the real devices (`VisionIO.Limelight` for vision).
+- `<Name>IO.Sim` — extends `Real` and feeds simulated physics into the devices.
 
 - Hardware lives only in IO implementations. A subsystem never constructs a
   `TalonFX`, `CANcoder`, or Limelight helper call directly; it holds an `IO`

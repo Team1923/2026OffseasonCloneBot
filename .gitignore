@@ -187,6 +187,5 @@ compile_commands.json
 .factorypath
 
 # AdvantageKit
-src/main/java/frc/robot/BuildConstants.java
 logs/
 *.wpilog
