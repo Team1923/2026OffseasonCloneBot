@@ -59,14 +59,16 @@ public final class VisionSubsystem extends SubsystemBase {
     return getPose().getTranslation().getDistance(getAllianceHubPose().getTranslation());
   }
 
-  /** Interpolated drum RPM for the current hub distance.*/
+  /** Interpolated drum RPM for the current hub distance; 0 until the map has entries. */
   public double getRPM() {
-    return InterpolationConstants.distanceToRPMMap.get(getDistanceToHub());
+    Double rpm = InterpolationConstants.distanceToRPMMap.get(getDistanceToHub());
+    return rpm == null ? 0.0 : rpm;
   }
 
-  /** Interpolated hood angle in degrees for the current hub distance. */
+  /** Interpolated hood angle in degrees for the current hub distance; 0 until the map has entries. */
   public double getHoodAngle() {
-    return InterpolationConstants.distanceToHoodMap.get(getDistanceToHub());
+    Double hoodAngleDegrees = InterpolationConstants.distanceToHoodMap.get(getDistanceToHub());
+    return hoodAngleDegrees == null ? 0.0 : hoodAngleDegrees;
   }
 
   /** Seeds odometry from the front-right camera when MegaTag1 has a valid target. TODO: Should this MT1 Rezero be done with multiple limelights*/
