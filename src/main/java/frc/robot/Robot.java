@@ -8,16 +8,12 @@ import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
-import frc.robot.Constants.LoggingConstants;
+import frc.robot.lib.logging.LoggingStartup;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.function.BiConsumer;
-import org.littletonrobotics.junction.LogFileUtil;
 import org.littletonrobotics.junction.LoggedRobot;
 import org.littletonrobotics.junction.Logger;
-import org.littletonrobotics.junction.networktables.NT4Publisher;
-import org.littletonrobotics.junction.wpilog.WPILOGReader;
-import org.littletonrobotics.junction.wpilog.WPILOGWriter;
 
 /**
  * The methods in this class are called automatically corresponding to each mode, as described in
@@ -35,25 +31,9 @@ public class Robot extends LoggedRobot {
    * initialization code.
    */
   public Robot() {
-    // AdvantageKit must be configured and started before any subsystem or IO is constructed.
-    Logger.recordMetadata("ProjectName", LoggingConstants.PROJECT_NAME);
-
-    switch (LoggingConstants.CURRENT_MODE) {
-      case REAL, SIM -> {
-        // Write a .wpilog (USB stick on the roboRIO, logs/ in sim) and publish live to NT
-        Logger.addDataReceiver(new WPILOGWriter());
-        Logger.addDataReceiver(new NT4Publisher());
-      }
-      case REPLAY -> {
-        // Replay a log as fast as possible and write the recomputed outputs next to it
-        setUseTiming(false);
-        String logPath = LogFileUtil.findReplayLog();
-        Logger.setReplaySource(new WPILOGReader(logPath));
-        Logger.addDataReceiver(new WPILOGWriter(LogFileUtil.addPathSuffix(logPath, "_sim")));
-      }
-    }
-
-    Logger.start();
+    // AdvantageKit must be started before any subsystem or IO is constructed. On the desktop this
+    // waits for Start in SmartDashboard > Robot Startup (simulate or replay, and where to log).
+    stateHandler.robotMode = LoggingStartup.start(this);
 
     // Log running commands so logs identify the active actions
     Map<String, Integer> commandCounts = new HashMap<>();

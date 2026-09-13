@@ -36,7 +36,6 @@ import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.Constants;
 import frc.robot.StateHandler;
-import frc.robot.Constants.LoggingConstants;
 import org.littletonrobotics.junction.Logger;
 
 /**
@@ -50,7 +49,7 @@ public class SwerveSubsystem extends SubsystemBase {
     public static synchronized SwerveSubsystem getInstance() {
         if (swerveSubsystem == null) {
             swerveSubsystem = new SwerveSubsystem(
-                    switch (LoggingConstants.CURRENT_MODE) {
+                    switch (StateHandler.getInstance().robotMode) {
                         case REAL -> new SwerveIO.Real();
                         case SIM -> new SwerveIO.Sim();
                         case REPLAY -> new SwerveIO() {};

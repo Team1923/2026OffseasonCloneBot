@@ -20,7 +20,6 @@ import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.interpolation.InterpolatingDoubleTreeMap;
 import edu.wpi.first.math.util.Units;
-import edu.wpi.first.wpilibj.RobotBase;
 
 /** Robot-wide constants grouped by the subsystem that owns them. */
 public final class Constants {
@@ -38,13 +37,31 @@ public final class Constants {
       REPLAY
     }
 
-    /** Change to {@link Mode#REPLAY} to replay a log on the desktop instead of simulating. */
-    public static final Mode SIM_MODE = Mode.SIM;
-
-    public static final Mode CURRENT_MODE = RobotBase.isReal() ? Mode.REAL : SIM_MODE;
-
     /** Recorded as metadata in every log. */
     public static final String PROJECT_NAME = "2026OffseasonCloneBot";
+
+    /** The roboRIO only logs when a USB stick is plugged in. */
+    public static final String REAL_LOG_FOLDER = "/U/logs";
+    /** Simulation logs, relative to the project folder. Also searched for logs to replay. */
+    public static final String SIM_LOG_FOLDER = "logs";
+    /** Added to a replayed log's filename for the recomputed output log. */
+    public static final String REPLAY_OUTPUT_SUFFIX = "_sim";
+
+    /** SmartDashboard folder holding the desktop simulate/replay selector. */
+    public static final String STARTUP_DASHBOARD_TABLE = "Robot Startup";
+    /** Set by ./gradlew replayWatch to replay a log without the dashboard selector. */
+    public static final String REPLAY_LOG_PATH_ENVIRONMENT_VARIABLE = "AKIT_LOG_PATH";
+    /** "true" to replay in real time; set when the selector relaunches the program for replay. */
+    public static final String REPLAY_REAL_TIME_ENVIRONMENT_VARIABLE = "ROBOT_REPLAY_REAL_TIME";
+    /** Output log path for a relaunched replay, or {@link #REPLAY_OUTPUT_NONE}. */
+    public static final String REPLAY_OUTPUT_ENVIRONMENT_VARIABLE = "ROBOT_REPLAY_OUTPUT";
+    public static final String REPLAY_OUTPUT_NONE = "none";
+    /** Lists the loaded HAL sim extensions (Sim GUI, DS socket); replay requires it to be unset. */
+    public static final String HAL_SIM_EXTENSIONS_ENVIRONMENT_VARIABLE = "HALSIM_EXTENSIONS";
+    /** Main class started again when a replay is relaunched without sim extensions. */
+    public static final String ROBOT_MAIN_CLASS = "frc.robot.Main";
+    /** File in the system temp folder where AdvantageScope writes the path of its open log. */
+    public static final String ADVANTAGESCOPE_LOG_PATH_FILE = "akit-log-path.txt";
 
     private LoggingConstants() {}
   }

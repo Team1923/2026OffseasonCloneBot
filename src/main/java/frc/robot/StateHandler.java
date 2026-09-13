@@ -1,6 +1,7 @@
 package frc.robot;
 
 import edu.wpi.first.math.geometry.Rotation2d;
+import frc.robot.Constants.LoggingConstants.Mode;
 import frc.robot.subsystems.intake.IntakeSubsystem.IntakeArmState;
 import frc.robot.subsystems.intake.IntakeSubsystem.IntakeRollerState;
 import frc.robot.subsystems.rollers.RollersSubsystem.RollerFloorState;
@@ -26,6 +27,9 @@ public final class StateHandler {
     }
     return stateHandler;
   }
+
+  /** Set once by Robot at startup; selects the IO implementations. */
+  public Mode robotMode = Mode.SIM;
 
   public boolean isRedAlliance = false;
 

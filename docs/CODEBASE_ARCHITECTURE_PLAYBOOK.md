@@ -95,8 +95,11 @@ Use the imports supported by this project's installed WPILib version.
 ## Logging and IO layers (AdvantageKit)
 
 The robot uses [AdvantageKit](https://docs.advantagekit.org/) so every match can
-be replayed. `LoggingConstants.CURRENT_MODE` is `REAL` on the roboRIO and
-`SIM_MODE` (`SIM` or `REPLAY`) on the desktop.
+be replayed. `StateHandler.robotMode` is `REAL` on the roboRIO. On the desktop,
+`lib/logging/LoggingStartup` waits for **Start** in SmartDashboard > Robot Startup,
+where you pick simulate or replay, which log to replay, and where to save the log.
+No code changes are needed to switch. AdvantageKit cannot replay with the Sim GUI
+loaded, so choosing a replay from the Sim GUI relaunches the program without it.
 
 Each `<Name>IO.java` holds everything hardware-facing for that subsystem:
 
@@ -117,8 +120,8 @@ Each `<Name>IO.java` holds everything hardware-facing for that subsystem:
 - Every value the code decides (applied state, setpoint, accepted vision pose,
   readiness) is recorded with `Logger.recordOutput`. `StateHandler.log()` records
   all desired/current states each loop, and `Robot` records active commands.
-- To replay a log, set `SIM_MODE = Mode.REPLAY`, run the simulator, and pick the
-  `.wpilog`; the recomputed outputs are written to a `_sim` log for AdvantageScope.
+- To replay a log, run the simulator, choose a Replay run mode in Robot Startup,
+  and press Start; the recomputed outputs are written to a `_sim` log for AdvantageScope.
 
 ## Subsystem contract
 
