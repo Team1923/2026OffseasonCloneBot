@@ -1,4 +1,4 @@
-# 2026 Rebuilt JITB code architecture
+# 2026 Rebuilt 9470 Offseason code architecture
 
 This is the implementation contract for coding agents working on the robot.
 Read [`ROBOT_OVERVIEW.md`](ROBOT_OVERVIEW.md) for the physical robot and

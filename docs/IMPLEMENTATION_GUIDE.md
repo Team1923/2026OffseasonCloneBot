@@ -1,4 +1,4 @@
-# 2026 Rebuilt JITB implementation guide
+# 2026 Rebuilt 9470 Offseason implementation guide
 
 This guide translates [`ROBOT_OVERVIEW.md`](ROBOT_OVERVIEW.md) into code. Follow
 the rules in [`CODEBASE_ARCHITECTURE_PLAYBOOK.md`](CODEBASE_ARCHITECTURE_PLAYBOOK.md).

@@ -1,4 +1,4 @@
-# 2026 Rebuilt JITB Robot Overview
+# 2026 Rebuilt 9470 Offseason Robot Overview
 
 ## Robot concept
 
