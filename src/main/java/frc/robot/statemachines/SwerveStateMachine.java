@@ -4,114 +4,108 @@
 
 package frc.robot.statemachines;
 
-import java.util.function.DoubleSupplier;
-
 import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.ctre.phoenix6.swerve.SwerveModule.SteerRequestType;
 import com.ctre.phoenix6.swerve.SwerveRequest;
-
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.Command;
-import frc.robot.Constants;
-import frc.robot.StateHandler;
+import frc.robot.Constants.ControllerConstants;
 import frc.robot.Constants.SwerveConstants;
+import frc.robot.StateHandler;
 import frc.robot.subsystems.SwerveSubsystem;
-import frc.robot.subsystems.SwerveSubsystem.SwerveStates;
+import java.util.function.DoubleSupplier;
 
-/* You should consider using the more terse Command factories API instead https://docs.wpilib.org/en/stable/docs/software/commandbased/organizing-command-based.html#defining-commands */
-public class SwerveStateMachine extends Command {
+/** Default teleop drive command with field-, robot-, and heading-centric modes. */
+public final class SwerveStateMachine extends Command {
+  private static final SwerveRequest.FieldCentric FIELD_CENTRIC_REQUEST =
+      new SwerveRequest.FieldCentric()
+          .withDriveRequestType(DriveRequestType.Velocity)
+          .withSteerRequestType(SteerRequestType.Position);
 
-  public static class Requests {
+  private static final SwerveRequest.RobotCentric ROBOT_CENTRIC_REQUEST =
+      new SwerveRequest.RobotCentric()
+          .withDriveRequestType(DriveRequestType.Velocity)
+          .withSteerRequestType(SteerRequestType.Position);
 
-    /* Swerve requests to apply during SysId characterization */
-    public static final SwerveRequest.SysIdSwerveTranslation m_translationCharacterization = new SwerveRequest.SysIdSwerveTranslation();
-    public static final SwerveRequest.SysIdSwerveSteerGains m_steerCharacterization = new SwerveRequest.SysIdSwerveSteerGains();
-    public static final SwerveRequest.SysIdSwerveRotation m_rotationCharacterization = new SwerveRequest.SysIdSwerveRotation();
+  private static final SwerveRequest.FieldCentricFacingAngle FACING_HEADING_REQUEST =
+      createFacingHeadingRequest();
 
-    private static final SwerveRequest.FieldCentric FIELD_CENTRIC = new SwerveRequest.FieldCentric()
-        .withDriveRequestType(DriveRequestType.Velocity)
-        .withSteerRequestType(SteerRequestType.Position);
+  private final DoubleSupplier translationSupplier;
+  private final DoubleSupplier strafeSupplier;
+  private final DoubleSupplier rotationSupplier;
+  private final SwerveSubsystem swerve;
+  private final StateHandler stateHandler = StateHandler.getInstance();
 
-    private static final SwerveRequest.RobotCentric ROBOT_CENTRIC = new SwerveRequest.RobotCentric();
-
-  }
-
-  SwerveSubsystem swerveSubsystem;
-
-  StateHandler stateHandler = StateHandler.getStateHandler();
-
-  private DoubleSupplier translationSupplier;
-  private DoubleSupplier strafeSupplier;
-  private DoubleSupplier rotationSupplier;
-
-  /** Creates a new SwerveStateMachine. */
-  public SwerveStateMachine(DoubleSupplier translationSupplier, DoubleSupplier strafeSupplier,
-      DoubleSupplier rotationSupplier, SwerveSubsystem swerveSubsystem) {
-    // Use addRequirements() here to declare subsystem dependencies.
+  public SwerveStateMachine(
+      DoubleSupplier translationSupplier,
+      DoubleSupplier strafeSupplier,
+      DoubleSupplier rotationSupplier,
+      SwerveSubsystem swerve) {
     this.translationSupplier = translationSupplier;
     this.strafeSupplier = strafeSupplier;
     this.rotationSupplier = rotationSupplier;
+    this.swerve = swerve;
 
-    this.swerveSubsystem = swerveSubsystem;
-
-    addRequirements(swerveSubsystem);
+    addRequirements(swerve);
+    setName("SwerveStateMachine");
   }
 
-  // Called when the command is initially scheduled.
-  @Override
-  public void initialize() {
-
-  }
-
-  // Called every time the scheduler runs while the command is scheduled.
   @Override
   public void execute() {
-    SwerveStates currentState = stateHandler.swerveState;
-    SwerveRequest desiredRequest = Requests.FIELD_CENTRIC;
+    double translation = deadband(translationSupplier.getAsDouble());
+    double strafe = deadband(strafeSupplier.getAsDouble());
+    double rotation = deadband(rotationSupplier.getAsDouble());
 
-    double translation = MathUtil.applyDeadband(translationSupplier.getAsDouble(),
-        Constants.ControllerConstants.driverDeadband);
-
-    double strafe = MathUtil.applyDeadband(strafeSupplier.getAsDouble(),
-        Constants.ControllerConstants.driverDeadband);
-
-    double rotation = MathUtil.applyDeadband(rotationSupplier.getAsDouble(),
-        Constants.ControllerConstants.driverDeadband);
-
-    switch (currentState) {
-      case FIELD_CENTRIC:
-        if (DriverStation.isAutonomous()) {
-          desiredRequest = Requests.FIELD_CENTRIC
-              .withVelocityX(0)
-              .withVelocityY(0)
-              .withRotationalRate(0);
-        } else {
-          desiredRequest = Requests.FIELD_CENTRIC
-              .withVelocityX(translation * stateHandler.maxDriveSpeedMetersPerSecond)
-              .withVelocityY(strafe * stateHandler.maxDriveSpeedMetersPerSecond)
-              .withRotationalRate(rotation * SwerveConstants.MAX_DRIVE_ANGULAR_VELOCITY);
-
-        }
-        break;
-      default:
-        break;
+    // Path-following commands require swerve and normally interrupt this default command. This
+    // fallback prevents driver input if the default command is ever scheduled during autonomous.
+    if (DriverStation.isAutonomous()) {
+      translation = 0;
+      strafe = 0;
+      rotation = 0;
     }
-    swerveSubsystem.setControl(desiredRequest);
+
+    double velocityX = translation * stateHandler.maxDriveSpeedMetersPerSecond;
+    double velocityY = strafe * stateHandler.maxDriveSpeedMetersPerSecond;
+    double rotationalRate = rotation * SwerveConstants.MAX_DRIVE_ANGULAR_VELOCITY;
+
+    SwerveRequest request =
+        switch (stateHandler.swerveState) {
+          case FIELD_CENTRIC ->
+              FIELD_CENTRIC_REQUEST
+                  .withVelocityX(velocityX)
+                  .withVelocityY(velocityY)
+                  .withRotationalRate(rotationalRate);
+          case ROBOT_CENTRIC ->
+              ROBOT_CENTRIC_REQUEST
+                  .withVelocityX(velocityX)
+                  .withVelocityY(velocityY)
+                  .withRotationalRate(rotationalRate);
+          case FACING_HEADING ->
+              FACING_HEADING_REQUEST
+                  .withVelocityX(velocityX)
+                  .withVelocityY(velocityY)
+                  .withTargetDirection(stateHandler.desiredSwerveHeading);
+        };
+
+    swerve.setControl(request);
   }
 
-  // Called once the command ends or is interrupted.
-  @Override
-  public void end(boolean interrupted) {
-  }
-
-  // Returns true when the command should end.
   @Override
   public boolean isFinished() {
     return false;
   }
 
-  public static SwerveStateMachine generateHoldStillSwerveStateMachine() {
-    return new SwerveStateMachine(() -> 0, () -> 0, () -> 0, SwerveSubsystem.getInstance());
+  private static double deadband(double input) {
+    return MathUtil.applyDeadband(input, ControllerConstants.DRIVER_DEADBAND);
+  }
+
+  private static SwerveRequest.FieldCentricFacingAngle createFacingHeadingRequest() {
+    var request =
+        new SwerveRequest.FieldCentricFacingAngle()
+            .withDriveRequestType(DriveRequestType.Velocity)
+            .withSteerRequestType(SteerRequestType.Position);
+    request.HeadingController = SwerveConstants.HEADING_CONTROLLER;
+    return request;
   }
 }

@@ -4,126 +4,123 @@
 
 package frc.robot.subsystems;
 
-import com.ctre.phoenix6.configs.TalonFXConfiguration;
-import com.ctre.phoenix6.controls.ControlRequest;
-import com.ctre.phoenix6.controls.DutyCycleOut;
-import com.ctre.phoenix6.controls.Follower;
-import com.ctre.phoenix6.controls.MotionMagicVoltage;
 import com.ctre.phoenix6.controls.PositionVoltage;
-import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
 import com.ctre.phoenix6.hardware.TalonFX;
-import com.ctre.phoenix6.signals.MotorAlignmentValue;
-
-import edu.wpi.first.math.system.plant.DCMotor;
-import edu.wpi.first.math.system.plant.LinearSystemId;
 import edu.wpi.first.math.util.Units;
-import edu.wpi.first.wpilibj.RobotController;
-import edu.wpi.first.wpilibj.simulation.FlywheelSim;
-import edu.wpi.first.wpilibj.simulation.SingleJointedArmSim;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.Constants;
+import frc.robot.Constants.IntakeConstants;
+import frc.robot.StateHandler;
 
-public class IntakeSubsystem extends SubsystemBase {
+/** Controls the intake pivot and rollers. Hardware is applied by {@code IntakeStateMachine}. */
+public final class IntakeSubsystem extends SubsystemBase {
+  public enum IntakeArmState {
+    STOWED(positionRequest(-128)),
+    DEPLOYED(positionRequest(0)),
+    EXTENDED(positionRequest(-30));
 
-  private static IntakeSubsystem intakeSubsystem;
+    public final PositionVoltage request;
 
-  public static enum IntakeArmState {
-    STOWED(degreesToPositionVoltage(-128)),
-    DEPLOYED(degreesToPositionVoltage(0)),
-    EXTENDED(degreesToPositionVoltage(-30)),
-    FUEL_PUSH_HOLD(degreesToPositionVoltage(-40)),
-    FUEL_PUSH_MOVE(new DutyCycleOut(-0.2));
-
-    public ControlRequest request;
-
-    private IntakeArmState(ControlRequest request) {
+    IntakeArmState(PositionVoltage request) {
       this.request = request;
     }
 
-    private static PositionVoltage degreesToPositionVoltage(double degrees) {
+    private static PositionVoltage positionRequest(double degrees) {
       return new PositionVoltage(Units.degreesToRotations(degrees));
     }
   }
 
-  
-
-  public static enum IntakeRollerStates {
-    EJECT(new VoltageOut(0)),
-    INTAKE(new VoltageOut(8.5)),
-    PUSH(new VoltageOut(4)),
+  public enum IntakeRollerState {
     REST(new VoltageOut(0)),
-    EXTENDED(new VoltageOut(1));
+    INTAKE(new VoltageOut(8.5)),
+    HOLD(new VoltageOut(1.0)),
+    EJECT(new VoltageOut(-8.5));
 
-    public VoltageOut request;
+    public final VoltageOut request;
 
-    private IntakeRollerStates(VoltageOut request) {
+    IntakeRollerState(VoltageOut request) {
       this.request = request;
     }
-
   }
 
-  public static synchronized IntakeSubsystem getInstance() {
-    if (intakeSubsystem == null) {
-      intakeSubsystem = new IntakeSubsystem();
-    }
-    return intakeSubsystem;
-  }
+  private final StateHandler stateHandler = StateHandler.getInstance();
+  private final TalonFX intakeArm = new TalonFX(IntakeConstants.ARM_MOTOR_ID);
+  private final TalonFX intakeRollers = new TalonFX(IntakeConstants.ROLLER_MOTOR_ID);
 
-  private TalonFX intakeArm = new TalonFX(Constants.IntakeConstants.intakeArmID);
-  private TalonFX intakeRollers = new TalonFX(Constants.IntakeConstants.intakeRollerID);
-
-  /** Creates a new IntakeSubsystem. */
-  private IntakeSubsystem() {
-    intakeArm.getConfigurator().apply(Constants.IntakeConstants.INTAKE_ARM_CONFIGS);
-
-    intakeRollers.getConfigurator().apply(Constants.IntakeConstants.INTAKE_ROLLER_CONFIGS);
-
+  public IntakeSubsystem() {
+    intakeArm.getConfigurator().apply(IntakeConstants.ARM_CONFIG);
+    intakeRollers.getConfigurator().apply(IntakeConstants.ROLLER_CONFIG);
     zeroIntakeArm();
   }
 
-  public double getArmPosition() {
+  public double getArmPositionDegrees() {
     return Units.rotationsToDegrees(intakeArm.getPosition().getValueAsDouble());
   }
 
-  public double getRollerSpeed() {
-    return (intakeRollers.getVelocity().getValueAsDouble()) / 60;
+  public double getRollerSpeedRpm() {
+    return intakeRollers.getVelocity().getValueAsDouble() * 60.0;
   }
 
-  public void setIntakeArmState(IntakeArmState state) {
-    intakeArm.setControl(state.request);
+  /** Applies the desired arm state. Ordinary commands request states instead of calling this. */
+  public void applyArmState(IntakeArmState desiredState) {
+    intakeArm.setControl(desiredState.request);
   }
 
-  public void setIntakeRollerStates(IntakeRollerStates state) {
-    intakeRollers.setControl(state.request);
+  /** Applies the desired roller state. Ordinary commands request states instead of calling this. */
+  public void applyRollerState(IntakeRollerState desiredState) {
+    intakeRollers.setControl(desiredState.request);
   }
 
-  public boolean isAtIntakeArmState(IntakeArmState state) {
-    if (state.request instanceof PositionVoltage) {
-      PositionVoltage positionReq = (PositionVoltage) state.request;
-      return Math.abs(getArmPosition()
-          - Units.rotationsToDegrees(positionReq.Position)) < Constants.IntakeConstants.intakeArmAllowance;
-
-    } else {
-      return true;
-    }
+  public boolean atArmState(IntakeArmState desiredState) {
+    double targetDegrees = Units.rotationsToDegrees(desiredState.request.Position);
+    return Math.abs(getArmPositionDegrees() - targetDegrees)
+        < IntakeConstants.ARM_POSITION_TOLERANCE_DEGREES;
   }
 
-  public boolean isAtIntakeRollerState(IntakeRollerStates state) {
-    return true;
-  }
-
-  public void setIntakeArmControl(ControlRequest request) {
-    intakeArm.setControl(request);
+  public boolean atRollerState(IntakeRollerState desiredState) {
+    return true; // will get to state instantly
   }
 
   public void zeroIntakeArm() {
-    intakeArm.setPosition(Units.degreesToRotations(Constants.IntakeConstants.intakeArmZeroOffset));
+    intakeArm.setPosition(Units.degreesToRotations(IntakeConstants.ARM_ZERO_OFFSET_DEGREES));
   }
 
-  @Override
-  public void periodic() {
-    // This method will be called once per scheduler run
+  public Command intakeCommand() {
+    return Commands.run(
+            () -> request(IntakeArmState.DEPLOYED, IntakeRollerState.INTAKE))
+        .finallyDo(
+            interrupted -> request(IntakeArmState.EXTENDED, IntakeRollerState.HOLD))
+        .withName("IntakeCollect");
   }
 
+  public Command stowCommand() {
+    return Commands.run(
+            () -> request(IntakeArmState.STOWED, IntakeRollerState.REST))
+        .until(
+            () ->
+                stateHandler.currentIntakeArmState == IntakeArmState.STOWED
+                    && stateHandler.currentIntakeRollerState == IntakeRollerState.REST)
+        .withName("IntakeStow");
+  }
+
+  public Command ejectCommand() {
+    return Commands.run(
+            () -> request(IntakeArmState.DEPLOYED, IntakeRollerState.EJECT))
+        .finallyDo(
+            interrupted -> request(IntakeArmState.EXTENDED, IntakeRollerState.HOLD))
+        .withName("IntakeEject");
+  }
+
+  public Command restCommand() {
+    return Commands.runOnce(
+            () -> request(IntakeArmState.STOWED, IntakeRollerState.REST))
+        .withName("IntakeRest");
+  }
+
+  private void request(IntakeArmState armState, IntakeRollerState rollerState) {
+    stateHandler.desiredIntakeArmState = armState;
+    stateHandler.desiredIntakeRollerState = rollerState;
+  }
 }

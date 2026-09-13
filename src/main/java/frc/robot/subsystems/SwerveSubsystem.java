@@ -21,26 +21,23 @@ import com.pathplanner.lib.path.PathPlannerPath;
 import com.pathplanner.lib.path.Waypoint;
 
 import edu.wpi.first.math.Matrix;
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Pose3d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
 import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
-import edu.wpi.first.networktables.NetworkTableInstance;
-import edu.wpi.first.networktables.StructPublisher;
 import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj.DriverStation.Alliance;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj.Notifier;
 import edu.wpi.first.wpilibj.RobotController;
-import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.Subsystem;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.Constants;
+import frc.robot.StateHandler;
 import frc.robot.lib.swerve.TunerConstants;
 import frc.robot.lib.swerve.TunerConstants.TunerSwerveDrivetrain;
 
@@ -61,19 +58,9 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
     }
 
     public static enum SwerveStates {
-        FIELD_CENTRIC(new SwerveRequest.FieldCentric()),
-        ROBOT_CENTRIC(new SwerveRequest.RobotCentric()),
-        FACING_HUB(pidControl(new SwerveRequest.FieldCentricFacingAngle()));
-
-        public SwerveRequest request;
-        private SwerveStates(SwerveRequest request) {
-            this.request = request;
-        }
-
-        private static SwerveRequest.FieldCentricFacingAngle pidControl(SwerveRequest.FieldCentricFacingAngle request) {
-            request.HeadingController = Constants.SwerveConstants.HEADING_CONTROLLER;
-            return request;
-        }
+        FIELD_CENTRIC,
+        ROBOT_CENTRIC,
+        FACING_HEADING
     }
 
 
@@ -87,6 +74,8 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
     private static final Rotation2d kRedAlliancePerspectiveRotation = Rotation2d.k180deg;
     /* Keep track if we've ever applied the operator perspective before or not */
     private boolean m_hasAppliedOperatorPerspective = false;
+
+    private final StateHandler stateHandler = StateHandler.getInstance();
 
     /** Swerve request to apply during robot-centric path following */
     private static final SwerveRequest.ApplyRobotSpeeds m_pathApplyRobotSpeeds = new SwerveRequest.ApplyRobotSpeeds();
@@ -273,7 +262,7 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
                     config,
                     // Assume the path needs to be flipped for Red vs Blue, this is normally the
                     // case
-                    () -> DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red,
+                    () -> stateHandler.isRedAlliance,
                     this // Subsystem for requirements
             );
         } catch (Exception ex) {
@@ -315,15 +304,32 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
         return m_sysIdRoutineToApply.dynamic(direction);
     }
 
-    @Override
-    public void resetPose(Pose2d pose) {
-        ;
-        Timer.delay(0.05); // Wait for simulation to update
-        super.resetPose(pose);
+    public Pose2d getPose() {
+        return getState().Pose;
     }
 
-    public Pose2d getPose(){
-        return swerveSubsystem.getState().Pose;
+    /** Requests heading lock while leaving translation under the default drive state machine. */
+    public Command faceTargetCommand(Supplier<Pose2d> targetSupplier) {
+        return Commands.run(
+                        () -> {
+                            Pose2d pose = getPose();
+                            Pose2d target = targetSupplier.get();
+                            stateHandler.desiredSwerveHeading =
+                                    target.getTranslation().minus(pose.getTranslation()).getAngle();
+                            stateHandler.swerveState = SwerveStates.FACING_HEADING;
+                        })
+                .finallyDo(interrupted -> stateHandler.swerveState = SwerveStates.FIELD_CENTRIC)
+                .withName("SwerveFaceTarget");
+    }
+
+    public boolean isFacing(Pose2d target) {
+        Pose2d pose = getPose();
+        Rotation2d desiredHeading =
+                target.getTranslation().minus(pose.getTranslation()).getAngle();
+        double errorRadians =
+                MathUtil.angleModulus(desiredHeading.minus(pose.getRotation()).getRadians());
+        return Math.abs(Units.radiansToDegrees(errorRadians))
+                < Constants.SwerveConstants.HEADING_TOLERANCE_DEGREES;
     }
 
     @Override
@@ -340,23 +346,12 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
          * occurs during testing.
          */
         if (!m_hasAppliedOperatorPerspective || DriverStation.isDisabled()) {
-            DriverStation.getAlliance().ifPresent(allianceColor -> {
-                setOperatorPerspectiveForward(
-                        allianceColor == Alliance.Red
-                                ? kRedAlliancePerspectiveRotation
-                                : kBlueAlliancePerspectiveRotation);
-                m_hasAppliedOperatorPerspective = true;
-            });
+            setOperatorPerspectiveForward(
+                    stateHandler.isRedAlliance
+                            ? kRedAlliancePerspectiveRotation
+                            : kBlueAlliancePerspectiveRotation);
+            m_hasAppliedOperatorPerspective = true;
         }
-
-        // Updating angle towards hub
-        // StateHandler.getInstance().rotationSetpoint = VisionSubsystem.getInstance().getAngleTowardsHub();
-
-        // Check if we're actually facing the hub. //TODO: FIX
-        // if (StateHandler.getInstance().swerveState == SwerveStates.FACING_HUB) {
-        //     double difference = Math.abs(getPose().getRotation().getDegrees() - StateHandler.getInstance().rotationSetpoint.getDegrees());
-        //     StateHandler.getInstance().is_swerve_facing_hub = difference <= SwerveConstants.rotationTolerance;
-        // }
 
     }
 

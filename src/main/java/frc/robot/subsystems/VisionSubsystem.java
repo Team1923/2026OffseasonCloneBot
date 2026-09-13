@@ -7,27 +7,50 @@ package frc.robot.subsystems;
 import com.ctre.phoenix6.Utils;
 
 import edu.wpi.first.math.VecBuilder;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
+import frc.robot.StateHandler;
+import frc.robot.Constants.FieldConstants;
+import frc.robot.Constants.InterpolationConstants;
 import frc.robot.Constants.VisionConstants;
 import frc.robot.lib.vision.LimelightHelpers;
 import frc.robot.lib.vision.LimelightHelpers.PoseEstimate;
 
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
 public final class VisionSubsystem extends SubsystemBase {
-  private static final double MAX_GYRO_RATE_DEGREES_PER_SECOND = 720.0;
-  private static VisionSubsystem visionSubsystem;
-
   private final SwerveSubsystem swerve = SwerveSubsystem.getInstance();
 
-  private VisionSubsystem() {
+  public VisionSubsystem() {
     swerve.setVisionMeasurementStdDevs(VecBuilder.fill(0.01, 0.01, 9_999_999));
   }
 
-  public static synchronized VisionSubsystem getVisionSubsystem() {
-    if (visionSubsystem == null) {
-      visionSubsystem = new VisionSubsystem();
-    }
-    return visionSubsystem;
+  /** Returns the live drivetrain-estimator pose; Vision does not maintain a second pose cache. */
+  public Pose2d getPose() {
+    return swerve.getState().Pose;
+  }
+
+  /** Returns the alliance-appropriate hub pose used for shot aiming. */
+  public Pose2d getAllianceHubPose() {
+    return StateHandler.getInstance().isRedAlliance
+        ? FieldConstants.hubRedPose
+        : FieldConstants.hubBluePose;
+  }
+
+  /** Robot-to-hub distance in meters; the key into the shooter interpolation maps. */
+  public double getDistanceToHub() {
+    return getPose().getTranslation().getDistance(getAllianceHubPose().getTranslation());
+  }
+
+  /** Interpolated drum RPM for the current hub distance. Empty map until characterized. */
+  public double getRPM() {
+    return InterpolationConstants.distanceToRPMMap.get(getDistanceToHub());
+  }
+
+  /** Interpolated hood angle (degrees) for the current hub distance. Empty map until characterized. */
+  public double getHoodAngle() {
+    return InterpolationConstants.distanceToHoodMap.get(getDistanceToHub());
   }
 
   public PoseEstimate getMT2FrontLeft() {
@@ -66,7 +89,7 @@ public final class VisionSubsystem extends SubsystemBase {
 
     // Reject measurements while spinning too quickly for reliable pose estimates.
     if (Math.abs(swerve.getPigeon2().getAngularVelocityZWorld().getValueAsDouble())
-        >= MAX_GYRO_RATE_DEGREES_PER_SECOND) {
+        >= 720) {
       return;
     }
 

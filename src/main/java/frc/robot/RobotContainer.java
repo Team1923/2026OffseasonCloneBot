@@ -4,11 +4,19 @@
 
 package frc.robot;
 
-import frc.robot.Constants.OperatorConstants;
-
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
+import frc.robot.Constants.OperatorConstants;
+import frc.robot.statemachines.IntakeStateMachine;
+import frc.robot.statemachines.RollersStateMachine;
+import frc.robot.statemachines.ShooterStateMachine;
+import frc.robot.statemachines.SwerveStateMachine;
+import frc.robot.subsystems.IntakeSubsystem;
+import frc.robot.subsystems.RollersSubsystem;
+import frc.robot.subsystems.ShooterSubsystem;
+import frc.robot.subsystems.SwerveSubsystem;
+import frc.robot.subsystems.VisionSubsystem;
 
 /**
  * This class is where the bulk of the robot should be declared. Since Command-based is a
@@ -17,15 +25,22 @@ import edu.wpi.first.wpilibj2.command.button.Trigger;
  * subsystems, commands, and trigger mappings) should be declared here.
  */
 public class RobotContainer {
-  // The robot's subsystems and commands are defined here...
 
-  // Replace with CommandPS4Controller or CommandJoystick if needed
-  private final CommandXboxController m_driverController =
-      new CommandXboxController(OperatorConstants.kDriverControllerPort);
+  private StateHandler stateHandler = StateHandler.getInstance();
+
+  private CommandXboxController driverController =
+      new CommandXboxController(OperatorConstants.DRIVER_CONTROLLER_PORT);
+  private CommandXboxController operatorController =
+      new CommandXboxController(OperatorConstants.OPERATOR_CONTROLLER_PORT);
+
+  private SwerveSubsystem swerveSubsystem = SwerveSubsystem.getInstance();
+  private VisionSubsystem visionSubsystem = new VisionSubsystem();
+  private IntakeSubsystem intakeSubsystem = new IntakeSubsystem();
+  private RollersSubsystem rollersSubsystem = new RollersSubsystem();
+  private ShooterSubsystem shooterSubsystem = new ShooterSubsystem();
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
-    // Configure the trigger bindings
     configureBindings();
   }
 
@@ -39,7 +54,25 @@ public class RobotContainer {
    * joysticks}.
    */
   private void configureBindings() {
-    // Schedule `ExampleCommand` when `exampleCondition` changes to `true`
+
+    // Default Commands
+    swerveSubsystem.setDefaultCommand(
+        new SwerveStateMachine(
+            () -> -driverController.getLeftY(),
+            () -> -driverController.getLeftX(),
+            () -> -driverController.getRightX(),
+            swerveSubsystem));
+    intakeSubsystem.setDefaultCommand(new IntakeStateMachine(intakeSubsystem));
+    rollersSubsystem.setDefaultCommand(new RollersStateMachine(rollersSubsystem));
+    shooterSubsystem.setDefaultCommand(new ShooterStateMachine(shooterSubsystem));
+
+    // Driver Bindings
+    // Left unassigned until the driver control map is specified. Bind public subsystem
+    // command factories or compositions from RobotCommands here.
+
+    // Operator Bindings
+    // Left unassigned until the operator control map is specified. Bind public subsystem
+    // command factories or compositions from RobotCommands here.
   }
 
   /**
@@ -48,7 +81,6 @@ public class RobotContainer {
    * @return the command to run in autonomous
    */
   public Command getAutonomousCommand() {
-    // An example command will be run in autonomous
     return null;
   }
 }

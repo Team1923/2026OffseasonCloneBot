@@ -56,11 +56,9 @@ be measured and configured on the physical robot.
 
 ### Swerve
 
-The Swerve subsystem and its drive state machine are carried over from `Rebuilt_2026`.
-It provides field-centric driving, robot-centric support, odometry, vision fusion,
-PathPlanner integration, simulation, and characterization commands. Its hardware IDs,
+Swerve has been copied from Rebuilt_2026 codebase. It provides field-centric driving, robot-centric support, odometry, vision fusion. PathPlanner integration, simulation, and characterization commands. Its hardware IDs,
 encoder offsets, gear ratios, wheel radius, and PID/feedforward gains are copied values
-and must be checked before the new robot is enabled.
+and must be checked before the new robot is enabled (TODO: retune swerve to get new TunerConstants).
 
 ## Specified motor inventory
 
