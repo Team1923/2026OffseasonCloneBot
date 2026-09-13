@@ -6,6 +6,8 @@
    the coding rules every change must follow.
 3. [`IMPLEMENTATION_GUIDE.md`](IMPLEMENTATION_GUIDE.md) — current source status,
    implementation order, and examples.
+4. [`SIMULATION_AND_LOGGING.md`](SIMULATION_AND_LOGGING.md) — running the
+   simulator, choosing simulate or replay, AdvantageScope, and robot logs.
 
 When the documents disagree, use `ROBOT_OVERVIEW.md` for the physical design,
 the architecture playbook for ownership and organization, and the current code
