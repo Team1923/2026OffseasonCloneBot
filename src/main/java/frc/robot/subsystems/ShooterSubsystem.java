@@ -20,7 +20,7 @@ import frc.robot.StateHandler;
 public final class ShooterSubsystem extends SubsystemBase {
   public enum ShooterHoodState {
     STOWED(degreesRequest(0)),
-    TRACKING(degreesRequest(0)), // TODO: replace with shot model
+    SHOOTING(degreesRequest(0)), // TODO: replace with shot model
     FERRY(degreesRequest(0)); // TODO: tune
 
     public final PositionVoltage request;
@@ -36,7 +36,7 @@ public final class ShooterSubsystem extends SubsystemBase {
 
   public enum ShooterDrumState {
     IDLE(rpmRequest(0)),
-    WARMING(rpmRequest(0)), // TODO: tune
+    WARMING(rpmRequest(0)), // TODO: tune - slow velocity of wheels always running
     SHOOTING(rpmRequest(0)), // TODO: replace with shot model
     FERRY(rpmRequest(0)); // TODO: tune
 
@@ -115,7 +115,7 @@ public final class ShooterSubsystem extends SubsystemBase {
 
   public Command shootCommand() {
     return requestWhileHeld(
-        ShooterHoodState.TRACKING, ShooterDrumState.SHOOTING, "ShooterShoot");
+        ShooterHoodState.SHOOTING, ShooterDrumState.SHOOTING, "ShooterShoot");
   }
 
   public Command warmCommand() {
@@ -136,9 +136,9 @@ public final class ShooterSubsystem extends SubsystemBase {
 
   private Command requestWhileHeld(
       ShooterHoodState hoodState, ShooterDrumState drumState, String name) {
-    return Commands.run(() -> request(hoodState, drumState))
-        .finallyDo(
-            interrupted -> request(ShooterHoodState.STOWED, ShooterDrumState.IDLE))
+    return Commands.runEnd(
+            () -> request(hoodState, drumState),
+            () -> request(ShooterHoodState.STOWED, ShooterDrumState.IDLE))
         .withName(name);
   }
 

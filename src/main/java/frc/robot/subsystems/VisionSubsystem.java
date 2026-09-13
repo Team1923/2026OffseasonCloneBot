@@ -17,6 +17,7 @@ import frc.robot.Constants.InterpolationConstants;
 import frc.robot.Constants.VisionConstants;
 import frc.robot.lib.vision.LimelightHelpers;
 import frc.robot.lib.vision.LimelightHelpers.PoseEstimate;
+import java.util.OptionalDouble;
 
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
 public final class VisionSubsystem extends SubsystemBase {
@@ -43,12 +44,12 @@ public final class VisionSubsystem extends SubsystemBase {
     return getPose().getTranslation().getDistance(getAllianceHubPose().getTranslation());
   }
 
-  /** Interpolated drum RPM for the current hub distance. Empty map until characterized. */
+  /** Interpolated drum RPM for the current hub distance.*/
   public double getRPM() {
     return InterpolationConstants.distanceToRPMMap.get(getDistanceToHub());
   }
 
-  /** Interpolated hood angle (degrees) for the current hub distance. Empty map until characterized. */
+  /** Interpolated hood angle in degrees for the current hub distance. */
   public double getHoodAngle() {
     return InterpolationConstants.distanceToHoodMap.get(getDistanceToHub());
   }
@@ -71,6 +72,21 @@ public final class VisionSubsystem extends SubsystemBase {
   public PoseEstimate getMT2RearRight() {
     return LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(
         VisionConstants.REAR_RIGHT_LIMELIGHT);
+  }
+
+  public PoseEstimate getMT1FrontRight() {
+    return LimelightHelpers.getBotPoseEstimate_wpiBlue(
+        VisionConstants.FRONT_RIGHT_LIMELIGHT);
+  }
+
+  /** Seeds odometry from the front-right camera when MegaTag1 has a valid target. TODO: Should this MT1 Rezero be done with multiple limelights*/
+  public void zeroPoseToMT1() {
+    PoseEstimate estimate = getMT1FrontRight();
+    if (estimate == null || estimate.tagCount == 0) {
+      DriverStation.reportWarning("Could not zero pose: front-right Limelight has no target.", false);
+      return;
+    }
+    swerve.resetPose(estimate.pose);
   }
 
   @Override

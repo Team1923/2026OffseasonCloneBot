@@ -43,7 +43,7 @@ public final class RobotCommands {
             rollers.feedWhenAllowedCommand(feedAllowed))
         .withName("ShootGamePieces");
   }
-
+  
   /** Reverses the implemented game-piece path to clear or eject a game piece. */
   public static Command ejectCommand(
       IntakeSubsystem intake, RollersSubsystem rollers) {
