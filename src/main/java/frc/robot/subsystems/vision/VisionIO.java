@@ -36,6 +36,11 @@ public interface VisionIO {
     public double averageTagArea = 0.0;
     public int[] tagIds = new int[0];
 
+    /** True when the camera produced a MegaTag1 estimate (used to re-zero odometry). */
+    public boolean hasMegaTag1Estimate = false;
+
+    public Pose2d megaTag1Pose = Pose2d.kZero;
+
     @Override
     public void toLog(LogTable table) {
       table.put("Connected", connected);
@@ -48,6 +53,8 @@ public interface VisionIO {
       table.put("AverageTagDistanceMeters", averageTagDistanceMeters);
       table.put("AverageTagArea", averageTagArea);
       table.put("TagIds", tagIds);
+      table.put("HasMegaTag1Estimate", hasMegaTag1Estimate);
+      table.put("MegaTag1Pose", megaTag1Pose);
     }
 
     @Override
@@ -62,6 +69,8 @@ public interface VisionIO {
       averageTagDistanceMeters = table.get("AverageTagDistanceMeters", averageTagDistanceMeters);
       averageTagArea = table.get("AverageTagArea", averageTagArea);
       tagIds = table.get("TagIds", tagIds);
+      hasMegaTag1Estimate = table.get("HasMegaTag1Estimate", hasMegaTag1Estimate);
+      megaTag1Pose = table.get("MegaTag1Pose", megaTag1Pose);
     }
   }
 
@@ -89,6 +98,12 @@ public interface VisionIO {
       inputs.connected =
           RobotController.getFPGATime() - latencyEntry.getLastChange()
               < DISCONNECT_TIMEOUT_MICROSECONDS;
+
+      PoseEstimate megaTag1 = LimelightHelpers.getBotPoseEstimate_wpiBlue(name);
+      inputs.hasMegaTag1Estimate = megaTag1 != null && megaTag1.tagCount > 0;
+      if (inputs.hasMegaTag1Estimate) {
+        inputs.megaTag1Pose = megaTag1.pose;
+      }
 
       PoseEstimate estimate = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(name);
       inputs.hasEstimate = estimate != null && estimate.tagCount > 0;

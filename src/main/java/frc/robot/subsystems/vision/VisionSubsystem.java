@@ -10,6 +10,7 @@ import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.StateHandler;
 import frc.robot.Constants.FieldConstants;
@@ -20,6 +21,7 @@ import org.littletonrobotics.junction.Logger;
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
 public final class VisionSubsystem extends SubsystemBase {
   private static final String[] CAMERA_NAMES = {"FrontLeft", "FrontRight", "RearLeft", "RearRight"};
+  private static final int FRONT_RIGHT = 1;
 
   private final SwerveSubsystem swerve = SwerveSubsystem.getInstance();
 
@@ -57,14 +59,25 @@ public final class VisionSubsystem extends SubsystemBase {
     return getPose().getTranslation().getDistance(getAllianceHubPose().getTranslation());
   }
 
-  /** Interpolated drum RPM for the current hub distance. Empty map until characterized. */
+  /** Interpolated drum RPM for the current hub distance.*/
   public double getRPM() {
     return InterpolationConstants.distanceToRPMMap.get(getDistanceToHub());
   }
 
-  /** Interpolated hood angle (degrees) for the current hub distance. Empty map until characterized. */
+  /** Interpolated hood angle in degrees for the current hub distance. */
   public double getHoodAngle() {
     return InterpolationConstants.distanceToHoodMap.get(getDistanceToHub());
+  }
+
+  /** Seeds odometry from the front-right camera when MegaTag1 has a valid target. TODO: Should this MT1 Rezero be done with multiple limelights*/
+  public void zeroPoseToMT1() {
+    VisionIO.VisionIOInputs frontRight = inputs[FRONT_RIGHT];
+    if (!frontRight.hasMegaTag1Estimate) {
+      DriverStation.reportWarning("Could not zero pose: front-right Limelight has no target.", false);
+      return;
+    }
+    Logger.recordOutput("Vision/ZeroedPoseToMT1", frontRight.megaTag1Pose);
+    swerve.resetPose(frontRight.megaTag1Pose);
   }
 
   @Override

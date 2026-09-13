@@ -99,8 +99,9 @@ public final class RollersSubsystem extends SubsystemBase {
   }
 
   private Command requestWhileHeld(RollerFloorState desiredState, String name) {
-    return Commands.run(() -> stateHandler.desiredRollerFloorState = desiredState)
-        .finallyDo(interrupted -> stateHandler.desiredRollerFloorState = RollerFloorState.REST)
+    return Commands.runEnd(
+            () -> stateHandler.desiredRollerFloorState = desiredState,
+            () -> stateHandler.desiredRollerFloorState = RollerFloorState.REST)
         .withName(name);
   }
 }

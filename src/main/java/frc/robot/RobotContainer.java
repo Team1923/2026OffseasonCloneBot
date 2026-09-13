@@ -99,12 +99,19 @@ public class RobotContainer {
             () -> -driverController.getRightX(),
             swerveSubsystem));
     intakeSubsystem.setDefaultCommand(new IntakeStateMachine(intakeSubsystem));
-    rollersSubsystem.setDefaultCommand(new RollersStateMachine(rollersSubsystem));
-    shooterSubsystem.setDefaultCommand(new ShooterStateMachine(shooterSubsystem));
+    rollersSubsystem.setDefaultCommand(
+      rollersSubsystem.feedWhenAllowedCommand(shooterSubsystem::readyToShoot));
+
 
     // Driver Bindings
-    // Left unassigned until the driver control map is specified. Bind public subsystem
     // command factories or compositions from RobotCommands here.
+    driverController.leftTrigger().whileTrue(intakeSubsystem.intakeCommand());
+    driverController.rightTrigger().whileTrue(shooterSubsystem.shootCommand());
+    driverController.leftBumper().whileTrue(shooterSubsystem.ferryCommand());
+    driverController.back().whileTrue(
+    intakeSubsystem.ejectCommand().alongWith(rollersSubsystem.ejectCommand()));
+
+
 
     // Operator Bindings
     // Left unassigned until the operator control map is specified. Bind public subsystem
