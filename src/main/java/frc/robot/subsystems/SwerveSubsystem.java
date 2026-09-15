@@ -322,15 +322,11 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
                 .withName("SwerveFaceTarget");
     }
 
-    /* TODO: Aarav - is this isFacing method written correctly */
     public boolean isFacing(Pose2d target) {
         Pose2d pose = getPose();
-        Rotation2d desiredHeading =
-                target.getTranslation().minus(pose.getTranslation()).getAngle();
-        double errorRadians =
-                MathUtil.angleModulus(desiredHeading.minus(pose.getRotation()).getRadians());
-        return Math.abs(Units.radiansToDegrees(errorRadians))
-                < Constants.SwerveConstants.HEADING_TOLERANCE_DEGREES;
+        Rotation2d desiredHeading = target.getTranslation().minus(pose.getTranslation()).getAngle();
+        double errorDegrees = desiredHeading.minus(pose.getRotation()).getDegrees();
+        return Math.abs(errorDegrees) < Constants.SwerveConstants.HEADING_TOLERANCE_DEGREES;
     }
 
     @Override
