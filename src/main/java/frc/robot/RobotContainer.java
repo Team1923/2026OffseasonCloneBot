@@ -27,8 +27,6 @@ import frc.robot.subsystems.VisionSubsystem;
  */
 public class RobotContainer {
 
-  private StateHandler stateHandler = StateHandler.getInstance();
-
   private CommandXboxController driverController =
       new CommandXboxController(OperatorConstants.DRIVER_CONTROLLER_PORT);
   private CommandXboxController operatorController =
@@ -69,17 +67,21 @@ public class RobotContainer {
 
 
     // Driver Bindings
-    // command factories or compositions from RobotCommands here.
-    driverController.leftTrigger().whileTrue(intakeSubsystem.intakeCommand());
-    driverController.rightTrigger().whileTrue(RobotCommands.shootCommand(shooterSubsystem, swerveSubsystem, rollersSubsystem, null));
+    driverController.x().onTrue(swerveSubsystem.runOnce(visionSubsystem::zeroPoseToMT1));
+    driverController.rightTrigger().whileTrue(
+        RobotCommands.shootCommand(
+            shooterSubsystem,
+            swerveSubsystem,
+            rollersSubsystem,
+            visionSubsystem::getAllianceHubPose));
     driverController.leftBumper().whileTrue(shooterSubsystem.ferryCommand());
     driverController.back().whileTrue(RobotCommands.ejectCommand(intakeSubsystem, rollersSubsystem));
 
     // Operator Bindings
-    // Left unassigned until the operator control map is specified. Bind public subsystem
-    // command factories or compositions from RobotCommands here.
-    
-    /* TODO: Ishaan complete operator bindings */
+    operatorController.rightTrigger().whileTrue(
+        RobotCommands.collectCommand(intakeSubsystem, rollersSubsystem));
+    operatorController.leftTrigger().whileTrue(rollersSubsystem.feedCommand());
+    operatorController.rightBumper().onTrue(intakeSubsystem.stowCommand());
   }
 
   /**
