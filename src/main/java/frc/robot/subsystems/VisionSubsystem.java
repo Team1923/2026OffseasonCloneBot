@@ -5,26 +5,17 @@
 package frc.robot.subsystems;
 
 import com.ctre.phoenix6.Utils;
-
-import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Translation2d;
-import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj.DriverStation.Alliance;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.Constants;
 import frc.robot.StateHandler;
 import frc.robot.Constants.FieldConstants;
 import frc.robot.Constants.InterpolationConstants;
 import frc.robot.Constants.VisionConstants;
 import frc.robot.lib.vision.LimelightHelpers;
 import frc.robot.lib.vision.LimelightHelpers.PoseEstimate;
-
-import java.lang.Thread.State;
-import java.util.OptionalDouble;
+import java.util.List;
 
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
 public final class VisionSubsystem extends SubsystemBase {
@@ -43,7 +34,10 @@ public final class VisionSubsystem extends SubsystemBase {
     swerve.setVisionMeasurementStdDevs(VecBuilder.fill(0.01, 0.01, 9_999_999));
   }
 
-  /** Returns the live drivetrain-estimator pose; Vision does not maintain a second pose cache. */
+  /**
+   * Returns the live drivetrain-estimator pose; Vision does not maintain a second
+   * pose cache.
+   */
   public Pose2d getPose() {
     return swerve.getState().Pose;
   }
@@ -55,12 +49,14 @@ public final class VisionSubsystem extends SubsystemBase {
         : FieldConstants.hubBluePose;
   }
 
-  /** Robot-to-hub distance in meters; the key into the shooter interpolation maps. */
+  /**
+   * Robot-to-hub distance in meters; the key into the shooter interpolation maps.
+   */
   public double getDistanceToHub() {
     return getPose().getTranslation().getDistance(getAllianceHubPose().getTranslation());
   }
 
-  /** Interpolated drum RPM for the current hub distance.*/
+  /** Interpolated drum RPM for the current hub distance. */
   public double getRPM() {
     return InterpolationConstants.distanceToRPMMap.get(getDistanceToHub());
   }
@@ -90,20 +86,56 @@ public final class VisionSubsystem extends SubsystemBase {
         VisionConstants.REAR_RIGHT_LIMELIGHT);
   }
 
+  public PoseEstimate getMT1FrontLeft() {
+    return LimelightHelpers.getBotPoseEstimate_wpiBlue(
+        VisionConstants.FRONT_LEFT_LIMELIGHT);
+  }
+
   public PoseEstimate getMT1FrontRight() {
     return LimelightHelpers.getBotPoseEstimate_wpiBlue(
         VisionConstants.FRONT_RIGHT_LIMELIGHT);
   }
 
-  /** Seeds odometry from the front-right camera when MegaTag1 has a valid target. TODO: Should this MT1 Rezero be done with multiple limelights*/
+  public PoseEstimate getMT1RearLeft() {
+    return LimelightHelpers.getBotPoseEstimate_wpiBlue(
+        VisionConstants.REAR_LEFT_LIMELIGHT);
+  }
+
+  public PoseEstimate getMT1RearRight() {
+    return LimelightHelpers.getBotPoseEstimate_wpiBlue(
+        VisionConstants.REAR_RIGHT_LIMELIGHT);
+  }
+
   public void zeroPoseToMT1() {
-    // edit method so that this checks all limelights mt1 pose and takes the most "accurate one" - is there a metric from the network tables that tells us this?
-    PoseEstimate estimate = getMT1FrontRight();
-    if (estimate == null || estimate.tagCount == 0) {
-      DriverStation.reportWarning("Could not zero pose: front-right Limelight has no target.", false);
+    PoseEstimate bestEstimate = getBestMt1Estimate();
+
+    if (bestEstimate == null) {
+      DriverStation.reportWarning("Could not zero pose: No Limelights have a target.", false);
       return;
     }
-    swerve.resetPose(estimate.pose);
+
+    swerve.resetPose(bestEstimate.pose);
+  }
+
+  public PoseEstimate getBestMt1Estimate() {
+    List<PoseEstimate> estimates = List.of(
+        getMT1FrontLeft(),
+        getMT1FrontRight(),
+        getMT1RearLeft(),
+        getMT1RearRight());
+
+    return estimates.stream()
+        .filter(estimate -> estimate != null && estimate.tagCount > 0)
+        .min((a, b) -> {
+          if (a.tagCount > 1 != b.tagCount > 1) {
+            if (a.tagCount > 1)
+              return -1;
+            else
+              return 1;
+          } else
+            return Double.compare(a.avgTagDist, b.avgTagDist);
+        })
+        .orElse(null);
   }
 
   @Override
@@ -121,8 +153,7 @@ public final class VisionSubsystem extends SubsystemBase {
         VisionConstants.REAR_RIGHT_LIMELIGHT, robotYawDegrees, 0, 0, 0, 0, 0);
 
     // Reject measurements while spinning too quickly for reliable pose estimates.
-    if (Math.abs(swerve.getPigeon2().getAngularVelocityZWorld().getValueAsDouble())
-        >= 720) {
+    if (Math.abs(swerve.getPigeon2().getAngularVelocityZWorld().getValueAsDouble()) >= 720) {
       return;
     }
 
