@@ -127,15 +127,33 @@ public final class VisionSubsystem extends SubsystemBase {
     return estimates.stream()
         .filter(estimate -> estimate != null && estimate.tagCount > 0)
         .min((a, b) -> {
-          if (a.tagCount > 1 != b.tagCount > 1) {
-            if (a.tagCount > 1)
-              return -1;
-            else
-              return 1;
-          } else
+          int tierA = getQualityTier(a);
+          int tierB = getQualityTier(b);
+
+          if (tierA != tierB) {
+            return Integer.compare(tierA, tierB);
+          } else {
             return Double.compare(a.avgTagDist, b.avgTagDist);
+          }
         })
         .orElse(null);
+  }
+
+  private double getAmbiguity(PoseEstimate estimate) {
+    if (estimate.rawFiducials != null && estimate.rawFiducials.length > 0) {
+      return estimate.rawFiducials[0].ambiguity;
+    }
+    return 1.0;
+  }
+
+  private int getQualityTier(PoseEstimate estimate) {
+    if (estimate.tagCount >= 2) {
+      return 1;
+    } else if (getAmbiguity(estimate) <= 0.3) {
+      return 2;
+    } else {
+      return 3;
+    }
   }
 
   @Override
