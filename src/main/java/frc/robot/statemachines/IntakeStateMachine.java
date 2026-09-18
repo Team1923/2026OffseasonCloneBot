@@ -28,9 +28,11 @@ public final class IntakeStateMachine extends Command {
     IntakeArmState desiredIntakeArmState = stateHandler.desiredIntakeArmState;
     IntakeRollerState desiredIntakeRollerState = stateHandler.desiredIntakeRollerState;
 
-    if (stateHandler.desiredIntakeRollerState == IntakeRollerState.INTAKE
-        && (stateHandler.currentIntakeArmState != stateHandler.desiredIntakeArmState)) {
-          stateHandler.desiredIntakeRollerState = IntakeRollerState.REST;
+    // Do not pull a game piece into an intake that has not finished moving. Adjust the local only;
+    // the StateHandler request stays as asked (see the architecture playbook).
+    if (desiredIntakeRollerState == IntakeRollerState.INTAKE
+        && stateHandler.currentIntakeArmState != desiredIntakeArmState) {
+      desiredIntakeRollerState = IntakeRollerState.REST;
     }
 
     intake.applyArmState(desiredIntakeArmState);

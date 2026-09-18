@@ -40,6 +40,10 @@ public interface VisionIO {
     public boolean hasMegaTag1Estimate = false;
 
     public Pose2d megaTag1Pose = Pose2d.kZero;
+    public int megaTag1TagCount = 0;
+    public double megaTag1AverageTagDistanceMeters = 0.0;
+    /** Ambiguity of the first tag the MegaTag1 estimate saw; 1.0 (worst) when unknown. */
+    public double megaTag1Ambiguity = 1.0;
 
     @Override
     public void toLog(LogTable table) {
@@ -55,6 +59,9 @@ public interface VisionIO {
       table.put("TagIds", tagIds);
       table.put("HasMegaTag1Estimate", hasMegaTag1Estimate);
       table.put("MegaTag1Pose", megaTag1Pose);
+      table.put("MegaTag1TagCount", megaTag1TagCount);
+      table.put("MegaTag1AverageTagDistanceMeters", megaTag1AverageTagDistanceMeters);
+      table.put("MegaTag1Ambiguity", megaTag1Ambiguity);
     }
 
     @Override
@@ -71,6 +78,10 @@ public interface VisionIO {
       tagIds = table.get("TagIds", tagIds);
       hasMegaTag1Estimate = table.get("HasMegaTag1Estimate", hasMegaTag1Estimate);
       megaTag1Pose = table.get("MegaTag1Pose", megaTag1Pose);
+      megaTag1TagCount = table.get("MegaTag1TagCount", megaTag1TagCount);
+      megaTag1AverageTagDistanceMeters =
+          table.get("MegaTag1AverageTagDistanceMeters", megaTag1AverageTagDistanceMeters);
+      megaTag1Ambiguity = table.get("MegaTag1Ambiguity", megaTag1Ambiguity);
     }
   }
 
@@ -103,6 +114,14 @@ public interface VisionIO {
       inputs.hasMegaTag1Estimate = megaTag1 != null && megaTag1.tagCount > 0;
       if (inputs.hasMegaTag1Estimate) {
         inputs.megaTag1Pose = megaTag1.pose;
+        inputs.megaTag1TagCount = megaTag1.tagCount;
+        inputs.megaTag1AverageTagDistanceMeters = megaTag1.avgTagDist;
+        inputs.megaTag1Ambiguity =
+            megaTag1.rawFiducials != null && megaTag1.rawFiducials.length > 0
+                ? megaTag1.rawFiducials[0].ambiguity
+                : 1.0;
+      } else {
+        inputs.megaTag1TagCount = 0;
       }
 
       PoseEstimate estimate = LimelightHelpers.getBotPoseEstimate_wpiBlue_MegaTag2(name);

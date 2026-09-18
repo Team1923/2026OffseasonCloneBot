@@ -15,13 +15,33 @@ import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.StateHandler;
 import frc.robot.Constants.FieldConstants;
 import frc.robot.Constants.InterpolationConstants;
+import frc.robot.Constants.LoggingConstants.Mode;
+import frc.robot.Constants.VisionConstants;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
 import org.littletonrobotics.junction.Logger;
 
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
 public final class VisionSubsystem extends SubsystemBase {
   private static final String[] CAMERA_NAMES = {"FrontLeft", "FrontRight", "RearLeft", "RearRight"};
-  private static final int FRONT_RIGHT = 1;
+
+  private static VisionSubsystem visionSubsystem;
+
+  /** Creates the vision subsystem with the Limelight IO on the robot, or empty IO in sim/replay. */
+  public static synchronized VisionSubsystem getInstance() {
+    if (visionSubsystem == null) {
+      visionSubsystem =
+          StateHandler.getInstance().robotMode == Mode.REAL
+              ? new VisionSubsystem(
+                  new VisionIO.Limelight(VisionConstants.FRONT_LEFT_LIMELIGHT),
+                  new VisionIO.Limelight(VisionConstants.FRONT_RIGHT_LIMELIGHT),
+                  new VisionIO.Limelight(VisionConstants.REAR_LEFT_LIMELIGHT),
+                  new VisionIO.Limelight(VisionConstants.REAR_RIGHT_LIMELIGHT))
+              // Limelights are not simulated, and in replay every input comes from the log.
+              : new VisionSubsystem(
+                  new VisionIO() {}, new VisionIO() {}, new VisionIO() {}, new VisionIO() {});
+    }
+    return visionSubsystem;
+  }
 
   private final SwerveSubsystem swerve = SwerveSubsystem.getInstance();
 
@@ -30,7 +50,7 @@ public final class VisionSubsystem extends SubsystemBase {
   private final Alert[] disconnectedAlerts;
 
   /** Cameras are passed in the order front left, front right, rear left, rear right. */
-  public VisionSubsystem(
+  private VisionSubsystem(
       VisionIO frontLeft, VisionIO frontRight, VisionIO rearLeft, VisionIO rearRight) {
     io = new VisionIO[] {frontLeft, frontRight, rearLeft, rearRight};
     inputs = new VisionIO.VisionIOInputs[io.length];
@@ -71,15 +91,54 @@ public final class VisionSubsystem extends SubsystemBase {
     return hoodAngleDegrees == null ? 0.0 : hoodAngleDegrees;
   }
 
-  /** Seeds odometry from the front-right camera when MegaTag1 has a valid target. TODO: Should this MT1 Rezero be done with multiple limelights*/
+  /** Resets odometry to the most trustworthy MegaTag1 estimate from any of the four Limelights. */
   public void zeroPoseToMT1() {
-    VisionIO.VisionIOInputs frontRight = inputs[FRONT_RIGHT];
-    if (!frontRight.hasMegaTag1Estimate) {
-      DriverStation.reportWarning("Could not zero pose: front-right Limelight has no target.", false);
+    int best = getBestMt1Camera();
+
+    if (best < 0) {
+      DriverStation.reportWarning("Could not zero pose: No Limelights have a target.", false);
       return;
     }
-    Logger.recordOutput("Vision/ZeroedPoseToMT1", frontRight.megaTag1Pose);
-    swerve.resetPose(frontRight.megaTag1Pose);
+
+    Logger.recordOutput("Vision/ZeroPoseToMT1/Camera", CAMERA_NAMES[best]);
+    Logger.recordOutput("Vision/ZeroPoseToMT1/Pose", inputs[best].megaTag1Pose);
+    swerve.resetPose(inputs[best].megaTag1Pose);
+  }
+
+  /**
+   * Index of the camera with the best MegaTag1 estimate, or -1 if none see a tag. Lower quality
+   * tier wins; ties go to the closer average tag distance.
+   */
+  public int getBestMt1Camera() {
+    int best = -1;
+    for (int i = 0; i < inputs.length; i++) {
+      if (!inputs[i].hasMegaTag1Estimate) {
+        continue;
+      }
+      if (best < 0 || compareMt1Quality(inputs[i], inputs[best]) < 0) {
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  private static int compareMt1Quality(VisionIO.VisionIOInputs a, VisionIO.VisionIOInputs b) {
+    int tierA = getQualityTier(a);
+    int tierB = getQualityTier(b);
+    if (tierA != tierB) {
+      return Integer.compare(tierA, tierB);
+    }
+    return Double.compare(a.megaTag1AverageTagDistanceMeters, b.megaTag1AverageTagDistanceMeters);
+  }
+
+  private static int getQualityTier(VisionIO.VisionIOInputs camera) {
+    if (camera.megaTag1TagCount >= 2) {
+      return 1;
+    } else if (camera.megaTag1Ambiguity <= 0.3) {
+      return 2;
+    } else {
+      return 3;
+    }
   }
 
   @Override
