@@ -7,10 +7,12 @@ package frc.robot.commands;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
-import frc.robot.subsystems.intake.IntakeSubsystem;
-import frc.robot.subsystems.rollers.RollersSubsystem;
-import frc.robot.subsystems.shooter.ShooterSubsystem;
-import frc.robot.subsystems.swerve.SwerveSubsystem;
+import frc.robot.subsystems.IntakeSubsystem;
+import frc.robot.subsystems.RollersSubsystem;
+import frc.robot.subsystems.ShooterSubsystem;
+import frc.robot.subsystems.SwerveSubsystem;
+import frc.robot.subsystems.VisionSubsystem;
+
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -35,7 +37,7 @@ public final class RobotCommands {
       RollersSubsystem rollers,
       Supplier<Pose2d> targetSupplier) {
     BooleanSupplier feedAllowed =
-        () -> shooter.readyToShoot() && swerve.isFacing(targetSupplier.get()); // if isFacing doesn't work can remove
+        () -> shooter.readyToShoot() && swerve.isFacing(VisionSubsystem.getInstance().getAllianceHubPose()); // if isFacing doesn't work can remove
 
     return Commands.parallel(
             shooter.shootCommand(),
