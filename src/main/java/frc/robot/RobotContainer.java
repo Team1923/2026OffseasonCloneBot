@@ -5,6 +5,7 @@
 package frc.robot;
 
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.button.CommandPS5Controller;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import frc.robot.Constants.OperatorConstants;
@@ -27,10 +28,8 @@ import frc.robot.subsystems.VisionSubsystem;
  */
 public class RobotContainer {
 
-  private CommandXboxController driverController =
-      new CommandXboxController(OperatorConstants.DRIVER_CONTROLLER_PORT);
-  private CommandXboxController operatorController =
-      new CommandXboxController(OperatorConstants.OPERATOR_CONTROLLER_PORT);
+  private CommandXboxController driverController = new CommandXboxController(0);
+  private CommandPS5Controller operatorController = new CommandPS5Controller(1);
 
   private SwerveSubsystem swerveSubsystem = SwerveSubsystem.getInstance();
   private VisionSubsystem visionSubsystem = VisionSubsystem.getInstance();
@@ -62,26 +61,23 @@ public class RobotContainer {
             () -> -driverController.getRightX(),
             swerveSubsystem));
     intakeSubsystem.setDefaultCommand(new IntakeStateMachine(intakeSubsystem));
-    rollersSubsystem.setDefaultCommand(
-      rollersSubsystem.feedWhenAllowedCommand(shooterSubsystem::readyToShoot));
+    rollersSubsystem.setDefaultCommand(new RollersStateMachine(rollersSubsystem));
 
 
     // Driver Bindings
-    driverController.x().onTrue(swerveSubsystem.runOnce(visionSubsystem::zeroPoseToMT1));
+    driverController.x().onTrue(swerveSubsystem.runOnce(() -> visionSubsystem.zeroPoseToMT1()));
     driverController.rightTrigger().whileTrue(
         RobotCommands.shootCommand(
             shooterSubsystem,
             swerveSubsystem,
-            rollersSubsystem,
-            visionSubsystem::getAllianceHubPose));
+            rollersSubsystem));
     driverController.leftBumper().whileTrue(shooterSubsystem.ferryCommand());
     driverController.back().whileTrue(RobotCommands.ejectCommand(intakeSubsystem, rollersSubsystem));
 
     // Operator Bindings
-    operatorController.rightTrigger().whileTrue(
-        RobotCommands.collectCommand(intakeSubsystem, rollersSubsystem));
-    operatorController.leftTrigger().whileTrue(rollersSubsystem.feedCommand());
-    operatorController.rightBumper().onTrue(intakeSubsystem.stowCommand());
+    operatorController.R1().whileTrue(RobotCommands.groundIntake(intakeSubsystem, rollersSubsystem));
+    operatorController.L2().whileTrue(rollersSubsystem.feedCommand());
+    operatorController.options().onTrue(intakeSubsystem.stowCommand());
   }
 
   /**

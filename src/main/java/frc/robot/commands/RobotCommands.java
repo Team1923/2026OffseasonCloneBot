@@ -21,7 +21,7 @@ public final class RobotCommands {
   private RobotCommands() {}
 
   /** Collects game pieces through the intake and into the hopper floor. */
-  public static Command collectCommand(
+  public static Command groundIntake(
       IntakeSubsystem intake, RollersSubsystem rollers) {
     return Commands.parallel(intake.intakeCommand(), rollers.intakeCommand())
         .withName("CollectGamePieces");
@@ -34,14 +34,13 @@ public final class RobotCommands {
   public static Command shootCommand(
       ShooterSubsystem shooter,
       SwerveSubsystem swerve,
-      RollersSubsystem rollers,
-      Supplier<Pose2d> targetSupplier) {
+      RollersSubsystem rollers) {
     BooleanSupplier feedAllowed =
         () -> shooter.readyToShoot() && swerve.isFacing(VisionSubsystem.getInstance().getAllianceHubPose()); // if isFacing doesn't work can remove
 
     return Commands.parallel(
             shooter.shootCommand(),
-            swerve.faceTargetCommand(targetSupplier),
+            swerve.faceTargetCommand(() -> VisionSubsystem.getInstance().getAllianceHubPose()),
             rollers.feedWhenAllowedCommand(feedAllowed))
         .withName("ShootGamePieces");
   }
