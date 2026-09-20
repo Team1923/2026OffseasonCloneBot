@@ -9,11 +9,13 @@ and examples.
 
 ```text
 src/main/java/frc/robot/
-├── Robot.java                 lifecycle and scheduler only
-├── RobotContainer.java        construct once, defaults, and bindings
-├── Constants.java             one nested constants class per subsystem
+├── Robot.java                 lifecycle, scheduler, and AdvantageKit setup only
+├── RobotContainer.java        construct once (choosing IO per mode), defaults, and bindings
+├── Constants.java             one nested constants class per subsystem (+ LoggingConstants)
 ├── StateHandler.java          desired/current states and shared robot facts
-├── subsystems/                hardware, sensors, states, simple commands
+├── subsystems/<name>/         one package per subsystem:
+│   ├── <Name>Subsystem.java     states, status methods, logging, simple commands
+│   └── <Name>IO.java            inputs, IO interface, and its Real and Sim classes
 ├── statemachines/             continuous mechanism arbitration
 ├── commands/                  multi-subsystem or complicated actions
 └── lib/                       generated and reusable helpers
@@ -90,9 +92,40 @@ Commands v2 references:
 
 Use the imports supported by this project's installed WPILib version.
 
+## Logging and IO layers (AdvantageKit)
+
+The robot uses [AdvantageKit](https://docs.advantagekit.org/) so every match can
+be replayed. `StateHandler.robotMode` is `REAL` on the roboRIO. On the desktop,
+`lib/logging/LoggingStartup` waits for **Start** in SmartDashboard > Robot Startup,
+where you pick simulate or replay, which log to replay, and where to save the log.
+No code changes are needed to switch. AdvantageKit cannot replay with the Sim GUI
+loaded, so choosing a replay from the Sim GUI relaunches the program without it.
+
+Each `<Name>IO.java` holds everything hardware-facing for that subsystem:
+
+- `<Name>IOInputs` — every sensor value, with hand-written `toLog`/`fromLog`.
+  When you add a field, add it to both; `LoggableInputsTest` fails if a field is
+  not logged.
+- the `<Name>IO` interface — empty default methods, used as-is for replay.
+- `<Name>IO.Real` — the real devices (`VisionIO.Limelight` for vision).
+- `<Name>IO.Sim` — extends `Real` and feeds simulated physics into the devices.
+
+- Hardware lives only in IO implementations. A subsystem never constructs a
+  `TalonFX`, `CANcoder`, or Limelight helper call directly; it holds an `IO`
+  passed in by `RobotContainer`.
+- Each subsystem's `periodic()` calls `io.updateInputs(inputs)` and then
+  `Logger.processInputs("<Name>", inputs)` before anything reads a sensor.
+  Status methods (`atState`, `getPose`, ...) read from `inputs`, never from
+  hardware, so replay produces the same decisions.
+- Every value the code decides (applied state, setpoint, accepted vision pose,
+  readiness) is recorded with `Logger.recordOutput`. `StateHandler.log()` records
+  all desired/current states each loop, and `Robot` records active commands.
+- To replay a log, run the simulator, choose a Replay run mode in Robot Startup,
+  and press Start; the recomputed outputs are written to a `_sim` log for AdvantageScope.
+
 ## Subsystem contract
 
-Each mechanism subsystem owns:
+Each mechanism subsystem owns, through its IO layer:
 
 - every motor controller, encoder, beam break, range sensor, and other device
   physically attached to that mechanism;
@@ -118,8 +151,8 @@ its own Phoenix control request (`PositionVoltage`, `VelocityVoltage`,
 `VoltageOut`, `DutyCycleOut`, …) with the numeric setpoint written inline in the
 request, for example `INTAKE(new VoltageOut(8.5))` or
 `SHOOTING(rpmRequest(0))`. `applyState(...)` then does
-`motor.setControl(state.request)`, and `atState(...)` reads the target back off
-the same request. Distance-varying setpoints (drum RPM, hood angle) come from the
+`io.set…Control(state.request)` and logs the state and setpoint, and `atState(...)`
+reads the target back off the same request. Distance-varying setpoints (drum RPM, hood angle) come from the
 `InterpolationConstants` maps through Vision, not from a fixed enum value.
 
 ## State-machine contract

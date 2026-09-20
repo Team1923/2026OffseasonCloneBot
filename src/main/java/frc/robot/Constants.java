@@ -25,6 +25,47 @@ import edu.wpi.first.math.util.Units;
 public final class Constants {
   private Constants() {}
 
+  /** AdvantageKit logging and robot mode. */
+  public static final class LoggingConstants {
+    /** Selects which IO implementations are constructed and where logs are read/written. */
+    public enum Mode {
+      /** Running on a real robot. */
+      REAL,
+      /** Running a physics simulator. */
+      SIM,
+      /** Replaying inputs from a log file. */
+      REPLAY
+    }
+
+    /** Recorded as metadata in every log. */
+    public static final String PROJECT_NAME = "2026OffseasonCloneBot";
+
+    /** The roboRIO only logs when a USB stick is plugged in. */
+    public static final String REAL_LOG_FOLDER = "/U/logs";
+    /** Simulation logs, relative to the project folder. Also searched for logs to replay. */
+    public static final String SIM_LOG_FOLDER = "logs";
+    /** Added to a replayed log's filename for the recomputed output log. */
+    public static final String REPLAY_OUTPUT_SUFFIX = "_sim";
+
+    /** SmartDashboard folder holding the desktop simulate/replay selector. */
+    public static final String STARTUP_DASHBOARD_TABLE = "Robot Startup";
+    /** Set by ./gradlew replayWatch to replay a log without the dashboard selector. */
+    public static final String REPLAY_LOG_PATH_ENVIRONMENT_VARIABLE = "AKIT_LOG_PATH";
+    /** "true" to replay in real time; set when the selector relaunches the program for replay. */
+    public static final String REPLAY_REAL_TIME_ENVIRONMENT_VARIABLE = "ROBOT_REPLAY_REAL_TIME";
+    /** Output log path for a relaunched replay, or {@link #REPLAY_OUTPUT_NONE}. */
+    public static final String REPLAY_OUTPUT_ENVIRONMENT_VARIABLE = "ROBOT_REPLAY_OUTPUT";
+    public static final String REPLAY_OUTPUT_NONE = "none";
+    /** Lists the loaded HAL sim extensions (Sim GUI, DS socket); replay requires it to be unset. */
+    public static final String HAL_SIM_EXTENSIONS_ENVIRONMENT_VARIABLE = "HALSIM_EXTENSIONS";
+    /** Main class started again when a replay is relaunched without sim extensions. */
+    public static final String ROBOT_MAIN_CLASS = "frc.robot.Main";
+    /** File in the system temp folder where AdvantageScope writes the path of its open log. */
+    public static final String ADVANTAGESCOPE_LOG_PATH_FILE = "akit-log-path.txt";
+
+    private LoggingConstants() {}
+  }
+
   public static final class OperatorConstants {
     public static final int DRIVER_CONTROLLER_PORT = 0;
     public static final int OPERATOR_CONTROLLER_PORT = 1;
@@ -39,13 +80,18 @@ public final class Constants {
   }
 
   public static final class IntakeConstants {
-    public static final int ARM_MOTOR_ID = 0;
-    public static final int ROLLER_MOTOR_ID = 0;
+    // TODO: placeholder IDs; they only need to be unique so the devices don't collide in sim
+    public static final int ARM_MOTOR_ID = 15;
+    public static final int ROLLER_MOTOR_ID = 16;
 
     public static final double ARM_GEAR_RATIO = 1.0;
     public static final double ROLLER_GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double ARM_POSITION_TOLERANCE_DEGREES = 10.0;
     public static final double ARM_ZERO_OFFSET_DEGREES = 0.0; // TODO: calibrate
+
+    // Simulation-only mechanism inertia. TODO: estimate from CAD
+    public static final double ARM_SIM_MOI_KG_METERS_SQUARED = 0.1;
+    public static final double ROLLER_SIM_MOI_KG_METERS_SQUARED = 0.001;
 
     public static final TalonFXConfiguration ARM_CONFIG =
         new TalonFXConfiguration()
@@ -99,9 +145,12 @@ public final class Constants {
   }
 
   public static final class RollersConstants {
-    public static final int MOTOR_ID = 0;
+    public static final int MOTOR_ID = 17; // TODO: placeholder ID, unique so sim devices don't collide
     public static final double GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double RPM_TOLERANCE = 100.0; // TODO: tune
+
+    // Simulation-only mechanism inertia. TODO: estimate from CAD
+    public static final double SIM_MOI_KG_METERS_SQUARED = 0.002;
 
     public static final TalonFXConfiguration MOTOR_CONFIG =
         new TalonFXConfiguration()
@@ -133,6 +182,10 @@ public final class Constants {
     public static final double DRUM_GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double HOOD_TOLERANCE_DEGREES = 0.5;
     public static final double DRUM_TOLERANCE_RPM = 75.0;
+
+    // Simulation-only mechanism inertia. TODO: estimate from CAD
+    public static final double HOOD_SIM_MOI_KG_METERS_SQUARED = 0.01;
+    public static final double DRUM_SIM_MOI_KG_METERS_SQUARED = 0.01;
 
     public static final TalonFXConfiguration HOOD_CONFIG =
         new TalonFXConfiguration()

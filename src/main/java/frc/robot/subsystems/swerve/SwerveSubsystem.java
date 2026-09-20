@@ -1,4 +1,4 @@
-package frc.robot.subsystems;
+package frc.robot.subsystems.swerve;
 
 import static edu.wpi.first.units.Units.*;
 
@@ -6,9 +6,6 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import com.ctre.phoenix6.SignalLogger;
-import com.ctre.phoenix6.Utils;
-import com.ctre.phoenix6.swerve.SwerveDrivetrainConstants;
-import com.ctre.phoenix6.swerve.SwerveModuleConstants;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import com.pathplanner.lib.auto.AutoBuilder;
 import com.pathplanner.lib.config.PIDConstants;
@@ -19,39 +16,44 @@ import com.pathplanner.lib.path.IdealStartingState;
 import com.pathplanner.lib.path.PathConstraints;
 import com.pathplanner.lib.path.PathPlannerPath;
 import com.pathplanner.lib.path.Waypoint;
+import com.pathplanner.lib.util.PathPlannerLogging;
 
 import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.math.numbers.N1;
 import edu.wpi.first.math.numbers.N3;
-import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.Alert;
+import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.DriverStation;
-import edu.wpi.first.wpilibj.Notifier;
-import edu.wpi.first.wpilibj.RobotController;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
-import edu.wpi.first.wpilibj2.command.Subsystem;
+import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import edu.wpi.first.wpilibj2.command.sysid.SysIdRoutine;
 import frc.robot.Constants;
 import frc.robot.StateHandler;
-import frc.robot.lib.swerve.TunerConstants;
-import frc.robot.lib.swerve.TunerConstants.TunerSwerveDrivetrain;
+import org.littletonrobotics.junction.Logger;
 
 /**
- * Class that extends the Phoenix 6 SwerveDrivetrain class and implements
- * Subsystem so it can easily be used in command-based projects.
+ * Command-based swerve subsystem. Hardware access goes through {@link SwerveIO} so the drivetrain
+ * can be logged and replayed with AdvantageKit.
  */
-public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem {
+public class SwerveSubsystem extends SubsystemBase {
 
     private static SwerveSubsystem swerveSubsystem;
 
     public static synchronized SwerveSubsystem getInstance() {
         if (swerveSubsystem == null) {
-            swerveSubsystem = TunerConstants.createDrivetrain();
+            swerveSubsystem = new SwerveSubsystem(
+                    switch (StateHandler.getInstance().robotMode) {
+                        case REAL -> new SwerveIO.Real();
+                        case SIM -> new SwerveIO.Sim();
+                        case REPLAY -> new SwerveIO() {};
+                    });
         }
         return swerveSubsystem;
 
@@ -63,10 +65,11 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
         FACING_HEADING
     }
 
+    private final SwerveIO io;
+    private final SwerveIO.SwerveIOInputs inputs = new SwerveIO.SwerveIOInputs();
 
-    private static final double kSimLoopPeriod = 0.005; // 5 ms
-    private Notifier m_simNotifier = null;
-    private double m_lastSimTime;
+    private final Alert gyroDisconnectedAlert = new Alert("Swerve gyro disconnected", AlertType.kError);
+    private final Alert[] moduleDisconnectedAlerts = new Alert[SwerveIO.MODULE_COUNT];
 
     /* Blue alliance sees forward as 0 degrees (toward red alliance wall) */
     private static final Rotation2d kBlueAlliancePerspectiveRotation = Rotation2d.kZero;
@@ -146,109 +149,28 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
     /* The SysId routine to test */
     private SysIdRoutine m_sysIdRoutineToApply = m_sysIdRoutineTranslation;
 
-    /**
-     * Constructs a CTRE SwerveDrivetrain using the specified constants.
-     * <p>
-     * This constructs the underlying hardware devices, so users should not
-     * construct
-     * the devices themselves. If they need the devices, they can access them
-     * through
-     * getters in the classes.
-     *
-     * @param drivetrainConstants Drivetrain-wide constants for the swerve drive
-     * @param modules             Constants for each specific module
-     */
-    public SwerveSubsystem(
-            SwerveDrivetrainConstants drivetrainConstants,
-            SwerveModuleConstants<?, ?, ?>... modules) {
-        super(drivetrainConstants, modules);
-        if (Utils.isSimulation()) {
-            startSimThread();
+    private SwerveSubsystem(SwerveIO io) {
+        this.io = io;
+        for (int i = 0; i < SwerveIO.MODULE_COUNT; i++) {
+            moduleDisconnectedAlerts[i] = new Alert(
+                    "Swerve module " + i + " hardware disconnected", AlertType.kError);
         }
 
         configureAutoBuilder();
 
-    }
-
-    /**
-     * Constructs a CTRE SwerveDrivetrain using the specified constants.
-     * <p>
-     * This constructs the underlying hardware devices, so users should not
-     * construct
-     * the devices themselves. If they need the devices, they can access them
-     * through
-     * getters in the classes.
-     *
-     * @param drivetrainConstants     Drivetrain-wide constants for the swerve drive
-     * @param odometryUpdateFrequency The frequency to run the odometry loop. If
-     *                                unspecified or set to 0 Hz, this is 250 Hz on
-     *                                CAN FD, and 100 Hz on CAN 2.0.
-     * @param modules                 Constants for each specific module
-     */
-    public SwerveSubsystem(
-            SwerveDrivetrainConstants drivetrainConstants,
-            double odometryUpdateFrequency,
-            SwerveModuleConstants<?, ?, ?>... modules) {
-        super(drivetrainConstants, odometryUpdateFrequency);
-
-        if (Utils.isSimulation()) {
-            startSimThread();
-        }
-
-        configureAutoBuilder();
-
-    }
-
-    /**
-     * Constructs a CTRE SwerveDrivetrain using the specified constants.
-     * <p>
-     * This constructs the underlying hardware devices, so users should not
-     * construct
-     * the devices themselves. If they need the devices, they can access them
-     * through
-     * getters in the classes.
-     *
-     * @param drivetrainConstants       Drivetrain-wide constants for the swerve
-     *                                  drive
-     * @param odometryUpdateFrequency   The frequency to run the odometry loop. If
-     *                                  unspecified or set to 0 Hz, this is 250 Hz
-     *                                  on
-     *                                  CAN FD, and 100 Hz on CAN 2.0.
-     * @param odometryStandardDeviation The standard deviation for odometry
-     *                                  calculation
-     *                                  in the form [x, y, theta]ᵀ, with units in
-     *                                  meters
-     *                                  and radians
-     * @param visionStandardDeviation   The standard deviation for vision
-     *                                  calculation
-     *                                  in the form [x, y, theta]ᵀ, with units in
-     *                                  meters
-     *                                  and radians
-     * @param modules                   Constants for each specific module
-     */
-    public SwerveSubsystem(
-            SwerveDrivetrainConstants drivetrainConstants,
-            double odometryUpdateFrequency,
-            Matrix<N3, N1> odometryStandardDeviation,
-            Matrix<N3, N1> visionStandardDeviation,
-            SwerveModuleConstants<?, ?, ?>... modules) {
-
-        super(drivetrainConstants, odometryUpdateFrequency, odometryStandardDeviation, visionStandardDeviation);
-        if (Utils.isSimulation()) {
-            startSimThread();
-        }
-
-        configureAutoBuilder();
-
+        PathPlannerLogging.setLogActivePathCallback(
+                poses -> Logger.recordOutput("Swerve/Auto/ActivePath", poses.toArray(new Pose2d[0])));
+        PathPlannerLogging.setLogTargetPoseCallback(
+                pose -> Logger.recordOutput("Swerve/Auto/TargetPose", pose));
     }
 
     private void configureAutoBuilder() {
         try {
             var config = RobotConfig.fromGUISettings();
             AutoBuilder.configure(
-                    () -> getState().Pose, // Supplier of current robot pose
+                    this::getPose, // Supplier of current robot pose
                     this::resetPose, // Consumer for seeding pose against auto
-                    () -> getState().Speeds, // Supplier of current robot speeds
+                    this::getSpeeds, // Supplier of current robot speeds
                     // Consumer of ChassisSpeeds and feedforwards to drive the robot
                     (speeds, feedforwards) -> setControl(
                             m_pathApplyRobotSpeeds.withSpeeds(speeds)
@@ -304,8 +226,37 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
         return m_sysIdRoutineToApply.dynamic(direction);
     }
 
+    /** Applies a CTRE swerve request to the modules. */
+    public void setControl(SwerveRequest request) {
+        io.setControl(request);
+        Logger.recordOutput("Swerve/Request", request.getClass().getSimpleName());
+    }
+
+    public void resetPose(Pose2d pose) {
+        io.resetPose(pose);
+        Logger.recordOutput("Swerve/ResetPose", pose);
+    }
+
+    /**
+     * Fuses a vision pose into the estimator.
+     *
+     * @param timestampSeconds capture time in CTRE's time base
+     */
+    public void addVisionMeasurement(
+            Pose2d visionRobotPoseMeters, double timestampSeconds, Matrix<N3, N1> visionMeasurementStdDevs) {
+        io.addVisionMeasurement(visionRobotPoseMeters, timestampSeconds, visionMeasurementStdDevs);
+    }
+
     public Pose2d getPose() {
-        return getState().Pose;
+        return inputs.pose;
+    }
+
+    public ChassisSpeeds getSpeeds() {
+        return inputs.speeds;
+    }
+
+    public double getYawVelocityDegreesPerSecond() {
+        return inputs.gyroYawVelocityDegreesPerSecond;
     }
 
     /** Requests heading lock while leaving translation under the default drive state machine. */
@@ -331,6 +282,15 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
 
     @Override
     public void periodic() {
+        io.updateInputs(inputs);
+        Logger.processInputs("Swerve", inputs);
+
+        gyroDisconnectedAlert.set(!inputs.gyroConnected);
+        for (int i = 0; i < SwerveIO.MODULE_COUNT; i++) {
+            moduleDisconnectedAlerts[i].set(
+                    !(inputs.driveConnected[i] && inputs.steerConnected[i] && inputs.encoderConnected[i]));
+        }
+
         /*
          * Periodically try to apply the operator perspective.
          * If we haven't applied the operator perspective before, then we should apply
@@ -343,7 +303,7 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
          * occurs during testing.
          */
         if (!m_hasAppliedOperatorPerspective || DriverStation.isDisabled()) {
-            setOperatorPerspectiveForward(
+            io.setOperatorPerspectiveForward(
                     stateHandler.isRedAlliance
                             ? kRedAlliancePerspectiveRotation
                             : kBlueAlliancePerspectiveRotation);
@@ -352,29 +312,8 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
 
     }
 
-    private void startSimThread() {
-        m_lastSimTime = Utils.getCurrentTimeSeconds();
-
-        /* Run simulation at a faster rate so PID gains behave more reasonably */
-        m_simNotifier = new Notifier(() -> {
-            final double currentTime = Utils.getCurrentTimeSeconds();
-            double deltaTime = currentTime - m_lastSimTime;
-            m_lastSimTime = currentTime;
-
-            /* Use 'this' to refer to the current instance safely */
-            this.updateSimState(deltaTime, RobotController.getBatteryVoltage());
-        });
-        m_simNotifier.startPeriodic(kSimLoopPeriod);
-    }
-
-    @Override
-    public void simulationPeriodic() {
-        /* Assume 20ms update rate, 12v battery voltage */
-        updateSimState(0.02, 12);
-    }
-
     public double getCurrentSpeed() {
-        return new Translation2d(this.getState().Speeds.vxMetersPerSecond, this.getState().Speeds.vyMetersPerSecond)
+        return new Translation2d(getSpeeds().vxMetersPerSecond, getSpeeds().vyMetersPerSecond)
                 .getNorm();
     }
 
@@ -385,7 +324,7 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
         // If we are going slow, we can generate the shortest straightline path,
         // regardless of where we are currently facing
         if (this.getCurrentSpeed() < 0.25) {
-            Translation2d diffInTranslation = waypoint.getTranslation().minus(this.getState().Pose.getTranslation());
+            Translation2d diffInTranslation = waypoint.getTranslation().minus(getPose().getTranslation());
 
             return (diffInTranslation.getNorm() < 0.01) // if there is a very small difference between their
                                                         // translations
@@ -395,8 +334,8 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
 
         // otherwise, if we are here, we need to velocity compensate
 
-        Rotation2d heading = new Rotation2d(this.getState().Speeds.vxMetersPerSecond,
-                this.getState().Speeds.vyMetersPerSecond);
+        Rotation2d heading = new Rotation2d(getSpeeds().vxMetersPerSecond,
+                getSpeeds().vyMetersPerSecond);
 
         return heading;
     }
@@ -404,12 +343,12 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
     public Command onTheFlyPath(Pose2d waypoint) {
 
         // List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
-        // this.getState().Pose,
+        // getPose(),
         // waypoint
         // );
 
         List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
-                new Pose2d(this.getState().Pose.getTranslation(), getIdealApproachVelocityHeadingTo(waypoint)),
+                new Pose2d(getPose().getTranslation(), getIdealApproachVelocityHeadingTo(waypoint)),
                 waypoint);
 
         // PathPlannerPath generated = new PathPlannerPath(
@@ -421,7 +360,7 @@ public class SwerveSubsystem extends TunerSwerveDrivetrain implements Subsystem 
         PathPlannerPath generated = new PathPlannerPath(
                 waypoints,
                 Constants.SwerveConstants.PATHING_CONSTRAINTS,
-                new IdealStartingState(getCurrentSpeed(), this.getState().Pose.getRotation()),
+                new IdealStartingState(getCurrentSpeed(), getPose().getRotation()),
                 new GoalEndState(0, waypoint.getRotation()));
 
         generated.preventFlipping = true;

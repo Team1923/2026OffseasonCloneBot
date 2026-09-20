@@ -2,17 +2,19 @@
 // Open Source Software; you can modify and/or share it under the terms of
 // the WPILib BSD license file in the root directory of this project.
 
-package frc.robot.subsystems;
+package frc.robot.subsystems.intake;
 
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
-import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.Alert;
+import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.IntakeConstants;
 import frc.robot.StateHandler;
+import org.littletonrobotics.junction.Logger;
 
 /** Controls the intake pivot and rollers. Hardware is applied by {@code IntakeStateMachine}. */
 public final class IntakeSubsystem extends SubsystemBase {
@@ -46,31 +48,49 @@ public final class IntakeSubsystem extends SubsystemBase {
   }
 
   private final StateHandler stateHandler = StateHandler.getInstance();
-  private final TalonFX intakeArm = new TalonFX(IntakeConstants.ARM_MOTOR_ID);
-  private final TalonFX intakeRollers = new TalonFX(IntakeConstants.ROLLER_MOTOR_ID);
+  private final IntakeIO io;
+  private final IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
 
-  public IntakeSubsystem() {
-    intakeArm.getConfigurator().apply(IntakeConstants.ARM_CONFIG);
-    intakeRollers.getConfigurator().apply(IntakeConstants.ROLLER_CONFIG);
+  private final Alert armDisconnectedAlert =
+      new Alert("Intake arm motor disconnected", AlertType.kError);
+  private final Alert rollerDisconnectedAlert =
+      new Alert("Intake roller motor disconnected", AlertType.kError);
+
+  public IntakeSubsystem(IntakeIO io) {
+    this.io = io;
     zeroIntakeArm();
   }
 
+  @Override
+  public void periodic() {
+    io.updateInputs(inputs);
+    Logger.processInputs("Intake", inputs);
+
+    armDisconnectedAlert.set(!inputs.armConnected);
+    rollerDisconnectedAlert.set(!inputs.rollerConnected);
+  }
+
   public double getArmPositionDegrees() {
-    return Units.rotationsToDegrees(intakeArm.getPosition().getValueAsDouble());
+    return inputs.armPositionDegrees;
   }
 
   public double getRollerSpeedRpm() {
-    return intakeRollers.getVelocity().getValueAsDouble() * 60.0;
+    return inputs.rollerVelocityRpm;
   }
 
   /** Applies the desired arm state. Ordinary commands request states instead of calling this. */
   public void applyArmState(IntakeArmState desiredState) {
-    intakeArm.setControl(desiredState.request);
+    io.setArmControl(desiredState.request);
+    Logger.recordOutput("Intake/Arm/AppliedState", desiredState);
+    Logger.recordOutput(
+        "Intake/Arm/SetpointDegrees", Units.rotationsToDegrees(desiredState.request.Position));
   }
 
   /** Applies the desired roller state. Ordinary commands request states instead of calling this. */
   public void applyRollerState(IntakeRollerState desiredState) {
-    intakeRollers.setControl(desiredState.request);
+    io.setRollerControl(desiredState.request);
+    Logger.recordOutput("Intake/Roller/AppliedState", desiredState);
+    Logger.recordOutput("Intake/Roller/SetpointVolts", desiredState.request.Output);
   }
 
   public boolean atArmState(IntakeArmState desiredState) {
@@ -84,7 +104,7 @@ public final class IntakeSubsystem extends SubsystemBase {
   }
 
   public void zeroIntakeArm() {
-    intakeArm.setPosition(Units.degreesToRotations(IntakeConstants.ARM_ZERO_OFFSET_DEGREES));
+    io.setArmPosition(IntakeConstants.ARM_ZERO_OFFSET_DEGREES);
   }
 
   public Command intakeCommand() {

@@ -6,16 +6,21 @@ package frc.robot;
 
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
-import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.CommandScheduler;
+import frc.robot.lib.logging.LoggingStartup;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.function.BiConsumer;
+import org.littletonrobotics.junction.LoggedRobot;
+import org.littletonrobotics.junction.Logger;
 
 /**
  * The methods in this class are called automatically corresponding to each mode, as described in
  * the TimedRobot documentation. If you change the name of this class or the package after creating
  * this project, you must also update the Main.java file in the project.
  */
-public class Robot extends TimedRobot {
+public class Robot extends LoggedRobot {
   private Command m_autonomousCommand;
 
   private final RobotContainer m_robotContainer;
@@ -26,6 +31,24 @@ public class Robot extends TimedRobot {
    * initialization code.
    */
   public Robot() {
+    // AdvantageKit must be started before any subsystem or IO is constructed. On the desktop this
+    // waits for Start in SmartDashboard > Robot Startup (simulate or replay, and where to log).
+    stateHandler.robotMode = LoggingStartup.start(this);
+
+    // Log running commands so logs identify the active actions
+    Map<String, Integer> commandCounts = new HashMap<>();
+    BiConsumer<Command, Boolean> logCommand =
+        (Command command, Boolean active) -> {
+          String name = command.getName();
+          int count = commandCounts.getOrDefault(name, 0) + (active ? 1 : -1);
+          commandCounts.put(name, count);
+          Logger.recordOutput("Commands/" + name, count > 0);
+        };
+    CommandScheduler scheduler = CommandScheduler.getInstance();
+    scheduler.onCommandInitialize(command -> logCommand.accept(command, true));
+    scheduler.onCommandFinish(command -> logCommand.accept(command, false));
+    scheduler.onCommandInterrupt(command -> logCommand.accept(command, false));
+
     // Instantiate our RobotContainer.  This will perform all our button bindings, and put our
     // autonomous chooser on the dashboard.
     m_robotContainer = new RobotContainer();
@@ -47,6 +70,7 @@ public class Robot extends TimedRobot {
     stateHandler.isRedAlliance =
         DriverStation.getAlliance().orElse(Alliance.Blue) == Alliance.Red;
     CommandScheduler.getInstance().run();
+    stateHandler.log();
   }
 
   /** This function is called once each time the robot enters Disabled mode. */

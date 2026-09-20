@@ -7,10 +7,10 @@ package frc.robot.statemachines;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.StateHandler;
-import frc.robot.subsystems.ShooterSubsystem;
-import frc.robot.subsystems.ShooterSubsystem.ShooterDrumState;
-import frc.robot.subsystems.ShooterSubsystem.ShooterHoodState;
-import frc.robot.subsystems.VisionSubsystem;
+import frc.robot.subsystems.shooter.ShooterSubsystem;
+import frc.robot.subsystems.shooter.ShooterSubsystem.ShooterDrumState;
+import frc.robot.subsystems.shooter.ShooterSubsystem.ShooterHoodState;
+import frc.robot.subsystems.vision.VisionSubsystem;
 
 /** Continuously applies shooter intent and publishes confirmed shooter state. */
 public final class ShooterStateMachine extends Command {

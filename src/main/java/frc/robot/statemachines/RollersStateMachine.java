@@ -6,8 +6,8 @@ package frc.robot.statemachines;
 
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.StateHandler;
-import frc.robot.subsystems.RollersSubsystem;
-import frc.robot.subsystems.RollersSubsystem.RollerFloorState;
+import frc.robot.subsystems.rollers.RollersSubsystem;
+import frc.robot.subsystems.rollers.RollersSubsystem.RollerFloorState;
 
 /** Applies the desired hopper-floor state and publishes confirmed state. */
 public final class RollersStateMachine extends Command {

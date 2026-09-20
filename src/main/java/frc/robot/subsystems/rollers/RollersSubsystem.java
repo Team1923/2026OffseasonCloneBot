@@ -2,16 +2,18 @@
 // Open Source Software; you can modify and/or share it under the terms of
 // the WPILib BSD license file in the root directory of this project.
 
-package frc.robot.subsystems;
+package frc.robot.subsystems.rollers;
 
 import com.ctre.phoenix6.controls.VelocityVoltage;
-import com.ctre.phoenix6.hardware.TalonFX;
+import edu.wpi.first.wpilibj.Alert;
+import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.RollersConstants;
 import frc.robot.StateHandler;
 import java.util.function.BooleanSupplier;
+import org.littletonrobotics.junction.Logger;
 
 /** Controls the hopper floor roller. This will become part of the complete Rollers subsystem. */
 public final class RollersSubsystem extends SubsystemBase {
@@ -33,19 +35,33 @@ public final class RollersSubsystem extends SubsystemBase {
   }
 
   private final StateHandler stateHandler = StateHandler.getInstance();
-  private final TalonFX rollerFloorMotor = new TalonFX(RollersConstants.MOTOR_ID);
+  private final RollersIO io;
+  private final RollersIO.RollersIOInputs inputs = new RollersIO.RollersIOInputs();
 
-  public RollersSubsystem() {
-    rollerFloorMotor.getConfigurator().apply(RollersConstants.MOTOR_CONFIG);
+  private final Alert floorDisconnectedAlert =
+      new Alert("Roller floor motor disconnected", AlertType.kError);
+
+  public RollersSubsystem(RollersIO io) {
+    this.io = io;
+  }
+
+  @Override
+  public void periodic() {
+    io.updateInputs(inputs);
+    Logger.processInputs("Rollers", inputs);
+
+    floorDisconnectedAlert.set(!inputs.floorConnected);
   }
 
   public double getSpeedRpm() {
-    return rollerFloorMotor.getVelocity().getValueAsDouble() * 60.0;
+    return inputs.floorVelocityRpm;
   }
 
   /** Applies the desired state. Ordinary commands request states instead of calling this. */
   public void applyState(RollerFloorState desiredState) {
-    rollerFloorMotor.setControl(desiredState.request);
+    io.setFloorControl(desiredState.request);
+    Logger.recordOutput("Rollers/Floor/AppliedState", desiredState);
+    Logger.recordOutput("Rollers/Floor/SetpointRpm", desiredState.request.Velocity * 60.0);
   }
 
   public boolean atState(RollerFloorState desiredState) {
