@@ -5,6 +5,7 @@
 package frc.robot;
 
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.button.CommandPS5Controller;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import frc.robot.Constants.OperatorConstants;
@@ -31,12 +32,8 @@ import frc.robot.subsystems.vision.VisionSubsystem;
  */
 public class RobotContainer {
 
-  private StateHandler stateHandler = StateHandler.getInstance();
-
-  private CommandXboxController driverController =
-      new CommandXboxController(OperatorConstants.DRIVER_CONTROLLER_PORT);
-  private CommandXboxController operatorController =
-      new CommandXboxController(OperatorConstants.OPERATOR_CONTROLLER_PORT);
+  private CommandXboxController driverController = new CommandXboxController(0);
+  private CommandPS5Controller operatorController = new CommandPS5Controller(1);
 
   // Swerve and Vision pick their own IO for the current mode inside getInstance().
   private final SwerveSubsystem swerveSubsystem = SwerveSubsystem.getInstance();
@@ -96,28 +93,23 @@ public class RobotContainer {
             () -> -driverController.getRightX(),
             swerveSubsystem));
     intakeSubsystem.setDefaultCommand(new IntakeStateMachine(intakeSubsystem));
-    // State machines are the only code that applies these mechanisms' states to hardware.
     rollersSubsystem.setDefaultCommand(new RollersStateMachine(rollersSubsystem));
-    shooterSubsystem.setDefaultCommand(new ShooterStateMachine(shooterSubsystem, visionSubsystem));
 
 
     // Driver Bindings
-    // command factories or compositions from RobotCommands here.
-    driverController.leftTrigger().whileTrue(intakeSubsystem.intakeCommand());
+    driverController.x().onTrue(swerveSubsystem.runOnce(() -> visionSubsystem.zeroPoseToMT1()));
     driverController.rightTrigger().whileTrue(
         RobotCommands.shootCommand(
-            shooterSubsystem, swerveSubsystem, rollersSubsystem, visionSubsystem::getAllianceHubPose));
-    // The rollers feed only once the shooter reports ready for the active shot.
-    driverController.leftBumper().whileTrue(
-        shooterSubsystem.ferryCommand()
-            .alongWith(rollersSubsystem.feedWhenAllowedCommand(shooterSubsystem::readyToShoot)));
+            shooterSubsystem,
+            swerveSubsystem,
+            rollersSubsystem));
+    driverController.leftBumper().whileTrue(shooterSubsystem.ferryCommand());
     driverController.back().whileTrue(RobotCommands.ejectCommand(intakeSubsystem, rollersSubsystem));
 
     // Operator Bindings
-    // Left unassigned until the operator control map is specified. Bind public subsystem
-    // command factories or compositions from RobotCommands here.
-    
-    /* TODO: Ishaan complete operator bindings */
+    operatorController.R1().whileTrue(RobotCommands.groundIntake(intakeSubsystem, rollersSubsystem));
+    operatorController.L2().whileTrue(rollersSubsystem.feedCommand());
+    operatorController.options().onTrue(intakeSubsystem.stowCommand());
   }
 
   /**
