@@ -1,6 +1,8 @@
 package frc.robot;
 
 import edu.wpi.first.math.geometry.Rotation2d;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
 import frc.robot.Constants.LoggingConstants.Mode;
 import frc.robot.subsystems.intake.IntakeSubsystem.IntakeArmState;
 import frc.robot.subsystems.intake.IntakeSubsystem.IntakeRollerState;
@@ -28,10 +30,20 @@ public final class StateHandler {
     return stateHandler;
   }
 
+  public enum ScoringMode {
+    FERRY,
+    RANGED
+  }
+
   /** Set once by Robot at startup; selects the IO implementations. */
   public Mode robotMode = Mode.SIM;
 
   public boolean isRedAlliance = false;
+  public ScoringMode scoringMode = ScoringMode.RANGED;
+
+  public Command setScoringMode(ScoringMode mode) {
+    return Commands.runOnce(() -> scoringMode = mode).withName("SetScoringMode" + mode);
+  }
 
   public IntakeArmState desiredIntakeArmState = IntakeArmState.STOWED;
   public IntakeArmState currentIntakeArmState = IntakeArmState.STOWED;
@@ -53,6 +65,7 @@ public final class StateHandler {
   /** Records every shared state as an AdvantageKit output. Called once per loop by Robot. */
   public void log() {
     Logger.recordOutput("StateHandler/IsRedAlliance", isRedAlliance);
+    Logger.recordOutput("StateHandler/Shooter/ScoringMode", scoringMode);
 
     Logger.recordOutput("StateHandler/Intake/DesiredArmState", desiredIntakeArmState);
     Logger.recordOutput("StateHandler/Intake/CurrentArmState", currentIntakeArmState);

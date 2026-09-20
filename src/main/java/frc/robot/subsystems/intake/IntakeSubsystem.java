@@ -34,9 +34,9 @@ public final class IntakeSubsystem extends SubsystemBase {
   }
 
   public enum IntakeArmState {
-    STOWED(positionRequest(-128)),
+    STOWED(positionRequest(0)),
     DEPLOYED(positionRequest(0)),
-    EXTENDED(positionRequest(-30));
+    EXTENDED(positionRequest(0));
 
     public final PositionVoltage request;
 
@@ -51,9 +51,9 @@ public final class IntakeSubsystem extends SubsystemBase {
 
   public enum IntakeRollerState {
     REST(new VoltageOut(0)),
-    INTAKE(new VoltageOut(8.5)),
-    HOLD(new VoltageOut(1.0)),
-    EJECT(new VoltageOut(-8.5));
+    INTAKE(new VoltageOut(0)),
+    HOLD(new VoltageOut(0)),
+    EJECT(new VoltageOut(0));
 
     public final VoltageOut request;
 

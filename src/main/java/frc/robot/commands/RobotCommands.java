@@ -4,9 +4,9 @@
 
 package frc.robot.commands;
 
-import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import frc.robot.StateHandler.ScoringMode;
 import frc.robot.subsystems.intake.IntakeSubsystem;
 import frc.robot.subsystems.rollers.RollersSubsystem;
 import frc.robot.subsystems.shooter.ShooterSubsystem;
@@ -14,8 +14,6 @@ import frc.robot.subsystems.swerve.SwerveSubsystem;
 import frc.robot.subsystems.vision.VisionSubsystem;
 
 import java.util.function.BooleanSupplier;
-import java.util.function.Supplier;
-
 /** Multi-subsystem robot actions assembled from subsystem command factories. */
 public final class RobotCommands {
   private RobotCommands() {}
@@ -27,16 +25,23 @@ public final class RobotCommands {
         .withName("CollectGamePieces");
   }
 
-  /**
-   * Spins up the shooter, points the drivetrain at the target, and permits feeding only when both
-   * mechanisms report ready.
-   */
-  public static Command shootCommand(
-      ShooterSubsystem shooter,
-      SwerveSubsystem swerve,
-      RollersSubsystem rollers) {
+  /** Creates the complete shooting action for the selected scoring mode. */
+  public static Command shootCommand(ScoringMode scoringMode) {
+    ShooterSubsystem shooter = ShooterSubsystem.getInstance();
+    RollersSubsystem rollers = RollersSubsystem.getInstance();
+
+    return switch (scoringMode) {
+      case RANGED -> rangedShootCommand(shooter, SwerveSubsystem.getInstance(), rollers);
+      case FERRY -> ferryShootCommand(shooter, rollers);
+    };
+  }
+
+  private static Command rangedShootCommand(
+      ShooterSubsystem shooter, SwerveSubsystem swerve, RollersSubsystem rollers) {
     BooleanSupplier feedAllowed =
-        () -> shooter.readyToShoot() && swerve.isFacing(VisionSubsystem.getInstance().getAllianceHubPose()); // if isFacing doesn't work can remove
+        () ->
+            shooter.readyToShoot()
+                && swerve.isFacing(VisionSubsystem.getInstance().getAllianceHubPose());
 
     return Commands.parallel(
             shooter.shootCommand(),
@@ -44,7 +49,15 @@ public final class RobotCommands {
             rollers.feedWhenAllowedCommand(feedAllowed))
         .withName("ShootGamePieces");
   }
-  
+
+  /** Runs the fixed ferry shot and feeds once the shooter reaches its setpoints. */
+  private static Command ferryShootCommand(ShooterSubsystem shooter, RollersSubsystem rollers) {
+    return Commands.parallel(
+            shooter.ferryCommand(),
+            rollers.feedWhenAllowedCommand(shooter::readyToShoot))
+        .withName("FerryGamePieces");
+  }
+
   /** Reverses the implemented game-piece path to clear or eject a game piece. */
   public static Command ejectCommand(
       IntakeSubsystem intake, RollersSubsystem rollers) {

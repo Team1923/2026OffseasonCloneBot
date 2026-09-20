@@ -22,24 +22,13 @@ import java.util.Optional;
 /** Publishes robot state and mechanism telemetry to SmartDashboard. */
 public final class InfoSubsystem extends SubsystemBase {
   private final StateHandler stateHandler = StateHandler.getInstance();
-  private final IntakeSubsystem intakeSubsystem;
-  private final RollersSubsystem rollersSubsystem;
-  private final ShooterSubsystem shooterSubsystem;
-  private final SwerveSubsystem swerveSubsystem;
-  private final VisionSubsystem visionSubsystem;
+  private final IntakeSubsystem intakeSubsystem = IntakeSubsystem.getInstance();
+  private final RollersSubsystem rollersSubsystem = RollersSubsystem.getInstance();
+  private final ShooterSubsystem shooterSubsystem = ShooterSubsystem.getInstance();
+  private final SwerveSubsystem swerveSubsystem = SwerveSubsystem.getInstance();
+  private final VisionSubsystem visionSubsystem = VisionSubsystem.getInstance();
 
-  public InfoSubsystem(
-      IntakeSubsystem intakeSubsystem,
-      RollersSubsystem rollersSubsystem,
-      ShooterSubsystem shooterSubsystem,
-      SwerveSubsystem swerveSubsystem,
-      VisionSubsystem visionSubsystem) {
-    this.intakeSubsystem = intakeSubsystem;
-    this.rollersSubsystem = rollersSubsystem;
-    this.shooterSubsystem = shooterSubsystem;
-    this.swerveSubsystem = swerveSubsystem;
-    this.visionSubsystem = visionSubsystem;
-  }
+  public InfoSubsystem() {}
 
   /** Returns whether the alliance hub is active during the current match period. */
   public boolean isHubActive() {
@@ -92,6 +81,7 @@ public final class InfoSubsystem extends SubsystemBase {
   @Override
   public void periodic() {
     SmartDashboard.putBoolean("Hub Active", isHubActive());
+    SmartDashboard.putString("Scoring Mode", stateHandler.scoringMode.toString());
 
     SmartDashboard.putBoolean(
         "Intake Down", stateHandler.currentIntakeArmState == IntakeArmState.DEPLOYED);

@@ -9,6 +9,7 @@ import edu.wpi.first.wpilibj2.command.button.CommandPS5Controller;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
 import edu.wpi.first.wpilibj2.command.button.Trigger;
 import frc.robot.Constants.OperatorConstants;
+import frc.robot.StateHandler.ScoringMode;
 import frc.robot.commands.RobotCommands;
 import frc.robot.statemachines.IntakeStateMachine;
 import frc.robot.statemachines.RollersStateMachine;
@@ -37,17 +38,11 @@ public class RobotContainer {
   private final IntakeSubsystem intakeSubsystem = IntakeSubsystem.getInstance();
   private final RollersSubsystem rollersSubsystem = RollersSubsystem.getInstance();
   private final ShooterSubsystem shooterSubsystem = ShooterSubsystem.getInstance();
-  private final InfoSubsystem infoSubsystem;
+  private final InfoSubsystem infoSubsystem = new InfoSubsystem();
+  private final StateHandler stateHandler = StateHandler.getInstance();
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
-    infoSubsystem =
-        new InfoSubsystem(
-            intakeSubsystem,
-            rollersSubsystem,
-            shooterSubsystem,
-            swerveSubsystem,
-            visionSubsystem);
     configureBindings();
   }
 
@@ -71,21 +66,25 @@ public class RobotContainer {
             swerveSubsystem));
     intakeSubsystem.setDefaultCommand(new IntakeStateMachine(intakeSubsystem));
     rollersSubsystem.setDefaultCommand(new RollersStateMachine(rollersSubsystem));
-
+    shooterSubsystem.setDefaultCommand(
+        new ShooterStateMachine(shooterSubsystem, visionSubsystem));
 
     // Driver Bindings
     driverController.x().onTrue(swerveSubsystem.runOnce(() -> visionSubsystem.zeroPoseToMT1()));
-    driverController.rightTrigger().whileTrue(
-        RobotCommands.shootCommand(
-            shooterSubsystem,
-            swerveSubsystem,
-            rollersSubsystem));
-    driverController.leftBumper().whileTrue(shooterSubsystem.ferryCommand());
+    Trigger shootTrigger = driverController.rightTrigger();
+    shootTrigger
+        .and(() -> stateHandler.scoringMode == ScoringMode.RANGED)
+        .whileTrue(RobotCommands.shootCommand(ScoringMode.RANGED));
+    shootTrigger
+        .and(() -> stateHandler.scoringMode == ScoringMode.FERRY)
+        .whileTrue(RobotCommands.shootCommand(ScoringMode.FERRY));
     driverController.back().whileTrue(RobotCommands.ejectCommand(intakeSubsystem, rollersSubsystem));
 
     // Operator Bindings
     operatorController.R1().whileTrue(RobotCommands.groundIntake(intakeSubsystem, rollersSubsystem));
     operatorController.L2().whileTrue(rollersSubsystem.feedCommand());
+    operatorController.circle().onTrue(stateHandler.setScoringMode(ScoringMode.RANGED));
+    operatorController.triangle().onTrue(stateHandler.setScoringMode(ScoringMode.FERRY));
     operatorController.options().onTrue(intakeSubsystem.stowCommand());
   }
 
