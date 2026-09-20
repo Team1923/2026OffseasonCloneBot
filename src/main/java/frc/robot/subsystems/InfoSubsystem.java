@@ -125,15 +125,14 @@ public final class InfoSubsystem extends SubsystemBase {
         "Shooter Hood Position (deg)", shooterSubsystem.getHoodPositionDegrees());
     SmartDashboard.putNumber("Shooter Drum Speed (RPM)", shooterSubsystem.getDrumSpeedRpm());
 
-    SmartDashboard.putNumber("Distance To Hub (m)", visionSubsystem.getDistanceToHub());
     SmartDashboard.putNumber(
         "Distance To Hub (in)", Units.metersToInches(visionSubsystem.getDistanceToHub()));
-    SmartDashboard.putNumber(
-        "Target Shooter Speed (RPM)",
-        stateHandler.desiredShooterDrumState.request.Velocity * 60.0);
-    SmartDashboard.putNumber(
-        "Target Hood Angle (deg)",
-        Units.rotationsToDegrees(stateHandler.desiredShooterHoodState.request.Position));
+    // SmartDashboard.putNumber(
+    //     "Target Shooter Speed (RPM)",
+    //     stateHandler.desiredShooterDrumState.request.Velocity * 60.0);
+    // SmartDashboard.putNumber(
+    //     "Target Hood Angle (deg)",
+    //     Units.rotationsToDegrees(stateHandler.desiredShooterHoodState.request.Position));
 
     Pose2d pose = swerveSubsystem.getPose();
     SmartDashboard.putString("Swerve State", stateHandler.swerveState.toString());

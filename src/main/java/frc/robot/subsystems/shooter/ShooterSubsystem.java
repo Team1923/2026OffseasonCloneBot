@@ -18,6 +18,21 @@ import org.littletonrobotics.junction.Logger;
 
 /** Controls the four-motor shooter drum and adjustable hood. */
 public final class ShooterSubsystem extends SubsystemBase {
+  private static ShooterSubsystem shooterSubsystem;
+
+  public static synchronized ShooterSubsystem getInstance() {
+    if (shooterSubsystem == null) {
+      shooterSubsystem =
+          new ShooterSubsystem(
+              switch (StateHandler.getInstance().robotMode) {
+                case REAL -> new ShooterIO.Real();
+                case SIM -> new ShooterIO.Sim();
+                case REPLAY -> new ShooterIO() {};
+              });
+    }
+    return shooterSubsystem;
+  }
+
   public enum ShooterHoodState {
     STOWED(degreesRequest(0)),
     SHOOTING(degreesRequest(0)), // TODO: replace with shot model
@@ -63,7 +78,7 @@ public final class ShooterSubsystem extends SubsystemBase {
       new Alert("Shooter hood motor disconnected", AlertType.kError);
   private final Alert[] drumDisconnectedAlerts = new Alert[ShooterIO.DRUM_MOTOR_COUNT];
 
-  public ShooterSubsystem(ShooterIO io) {
+  private ShooterSubsystem(ShooterIO io) {
     this.io = io;
     for (int i = 0; i < ShooterIO.DRUM_MOTOR_COUNT; i++) {
       drumDisconnectedAlerts[i] =

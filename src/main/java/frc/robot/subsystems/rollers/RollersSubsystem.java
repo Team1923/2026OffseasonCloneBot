@@ -17,6 +17,21 @@ import org.littletonrobotics.junction.Logger;
 
 /** Controls the hopper floor roller. This will become part of the complete Rollers subsystem. */
 public final class RollersSubsystem extends SubsystemBase {
+  private static RollersSubsystem rollersSubsystem;
+
+  public static synchronized RollersSubsystem getInstance() {
+    if (rollersSubsystem == null) {
+      rollersSubsystem =
+          new RollersSubsystem(
+              switch (StateHandler.getInstance().robotMode) {
+                case REAL -> new RollersIO.Real();
+                case SIM -> new RollersIO.Sim();
+                case REPLAY -> new RollersIO() {};
+              });
+    }
+    return rollersSubsystem;
+  }
+
   public enum RollerFloorState {
     REST(rpmRequest(0)),
     INTAKE(rpmRequest(0)), // TODO: measure and tune all these values
@@ -41,7 +56,7 @@ public final class RollersSubsystem extends SubsystemBase {
   private final Alert floorDisconnectedAlert =
       new Alert("Roller floor motor disconnected", AlertType.kError);
 
-  public RollersSubsystem(RollersIO io) {
+  private RollersSubsystem(RollersIO io) {
     this.io = io;
   }
 

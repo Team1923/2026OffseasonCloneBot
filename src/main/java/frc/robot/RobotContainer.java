@@ -15,11 +15,8 @@ import frc.robot.statemachines.RollersStateMachine;
 import frc.robot.statemachines.ShooterStateMachine;
 import frc.robot.statemachines.SwerveStateMachine;
 import frc.robot.subsystems.InfoSubsystem;
-import frc.robot.subsystems.intake.IntakeIO;
 import frc.robot.subsystems.intake.IntakeSubsystem;
-import frc.robot.subsystems.rollers.RollersIO;
 import frc.robot.subsystems.rollers.RollersSubsystem;
-import frc.robot.subsystems.shooter.ShooterIO;
 import frc.robot.subsystems.shooter.ShooterSubsystem;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
 import frc.robot.subsystems.vision.VisionSubsystem;
@@ -35,35 +32,15 @@ public class RobotContainer {
   private CommandXboxController driverController = new CommandXboxController(0);
   private CommandPS5Controller operatorController = new CommandPS5Controller(1);
 
-  // Swerve and Vision pick their own IO for the current mode inside getInstance().
   private final SwerveSubsystem swerveSubsystem = SwerveSubsystem.getInstance();
   private final VisionSubsystem visionSubsystem = VisionSubsystem.getInstance();
-  private final IntakeSubsystem intakeSubsystem;
-  private final RollersSubsystem rollersSubsystem;
-  private final ShooterSubsystem shooterSubsystem;
+  private final IntakeSubsystem intakeSubsystem = IntakeSubsystem.getInstance();
+  private final RollersSubsystem rollersSubsystem = RollersSubsystem.getInstance();
+  private final ShooterSubsystem shooterSubsystem = ShooterSubsystem.getInstance();
   private final InfoSubsystem infoSubsystem;
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
-    switch (stateHandler.robotMode) {
-      case REAL -> {
-        intakeSubsystem = new IntakeSubsystem(new IntakeIO.Real());
-        rollersSubsystem = new RollersSubsystem(new RollersIO.Real());
-        shooterSubsystem = new ShooterSubsystem(new ShooterIO.Real());
-      }
-      case SIM -> {
-        intakeSubsystem = new IntakeSubsystem(new IntakeIO.Sim());
-        rollersSubsystem = new RollersSubsystem(new RollersIO.Sim());
-        shooterSubsystem = new ShooterSubsystem(new ShooterIO.Sim());
-      }
-      default -> {
-        // Replay: no hardware, every input comes from the log.
-        intakeSubsystem = new IntakeSubsystem(new IntakeIO() {});
-        rollersSubsystem = new RollersSubsystem(new RollersIO() {});
-        shooterSubsystem = new ShooterSubsystem(new ShooterIO() {});
-      }
-    }
-
     infoSubsystem =
         new InfoSubsystem(
             intakeSubsystem,
