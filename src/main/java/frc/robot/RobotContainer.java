@@ -13,6 +13,7 @@ import frc.robot.statemachines.IntakeStateMachine;
 import frc.robot.statemachines.RollersStateMachine;
 import frc.robot.statemachines.ShooterStateMachine;
 import frc.robot.statemachines.SwerveStateMachine;
+import frc.robot.subsystems.InfoSubsystem;
 import frc.robot.subsystems.intake.IntakeIO;
 import frc.robot.subsystems.intake.IntakeSubsystem;
 import frc.robot.subsystems.rollers.RollersIO;
@@ -43,6 +44,7 @@ public class RobotContainer {
   private final IntakeSubsystem intakeSubsystem;
   private final RollersSubsystem rollersSubsystem;
   private final ShooterSubsystem shooterSubsystem;
+  private final InfoSubsystem infoSubsystem;
 
   /** The container for the robot. Contains subsystems, OI devices, and commands. */
   public RobotContainer() {
@@ -65,6 +67,13 @@ public class RobotContainer {
       }
     }
 
+    infoSubsystem =
+        new InfoSubsystem(
+            intakeSubsystem,
+            rollersSubsystem,
+            shooterSubsystem,
+            swerveSubsystem,
+            visionSubsystem);
     configureBindings();
   }
 
