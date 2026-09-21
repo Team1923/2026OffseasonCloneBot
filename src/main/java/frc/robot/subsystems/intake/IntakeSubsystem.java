@@ -18,10 +18,25 @@ import org.littletonrobotics.junction.Logger;
 
 /** Controls the intake pivot and rollers. Hardware is applied by {@code IntakeStateMachine}. */
 public final class IntakeSubsystem extends SubsystemBase {
+  private static IntakeSubsystem intakeSubsystem;
+
+  public static synchronized IntakeSubsystem getInstance() {
+    if (intakeSubsystem == null) {
+      intakeSubsystem =
+          new IntakeSubsystem(
+              switch (StateHandler.getInstance().robotMode) {
+                case REAL -> new IntakeIO.Real();
+                case SIM -> new IntakeIO.Sim();
+                case REPLAY -> new IntakeIO() {};
+              });
+    }
+    return intakeSubsystem;
+  }
+
   public enum IntakeArmState {
-    STOWED(positionRequest(-128)),
+    STOWED(positionRequest(0)),
     DEPLOYED(positionRequest(0)),
-    EXTENDED(positionRequest(-30));
+    EXTENDED(positionRequest(0));
 
     public final PositionVoltage request;
 
@@ -36,9 +51,9 @@ public final class IntakeSubsystem extends SubsystemBase {
 
   public enum IntakeRollerState {
     REST(new VoltageOut(0)),
-    INTAKE(new VoltageOut(8.5)),
-    HOLD(new VoltageOut(1.0)),
-    EJECT(new VoltageOut(-8.5));
+    INTAKE(new VoltageOut(0)),
+    HOLD(new VoltageOut(0)),
+    EJECT(new VoltageOut(0));
 
     public final VoltageOut request;
 
@@ -56,7 +71,7 @@ public final class IntakeSubsystem extends SubsystemBase {
   private final Alert rollerDisconnectedAlert =
       new Alert("Intake roller motor disconnected", AlertType.kError);
 
-  public IntakeSubsystem(IntakeIO io) {
+  private IntakeSubsystem(IntakeIO io) {
     this.io = io;
     zeroIntakeArm();
   }
