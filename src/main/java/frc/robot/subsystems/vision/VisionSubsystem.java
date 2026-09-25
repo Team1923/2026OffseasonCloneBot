@@ -18,6 +18,7 @@ import frc.robot.Constants.InterpolationConstants;
 import frc.robot.Constants.LoggingConstants.Mode;
 import frc.robot.Constants.VisionConstants;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
+import java.util.Arrays;
 import org.littletonrobotics.junction.Logger;
 
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
@@ -48,6 +49,8 @@ public final class VisionSubsystem extends SubsystemBase {
   private final VisionIO[] io;
   private final VisionIO.VisionIOInputs[] inputs;
   private final Alert[] disconnectedAlerts;
+  /** Timestamp of the last MegaTag2 frame seen from each camera, so each frame is fused once. */
+  private final double[] lastFrameTimestamps;
 
   /** Cameras are passed in the order front left, front right, rear left, rear right. */
   private VisionSubsystem(
@@ -55,6 +58,8 @@ public final class VisionSubsystem extends SubsystemBase {
     io = new VisionIO[] {frontLeft, frontRight, rearLeft, rearRight};
     inputs = new VisionIO.VisionIOInputs[io.length];
     disconnectedAlerts = new Alert[io.length];
+    lastFrameTimestamps = new double[io.length];
+    Arrays.fill(lastFrameTimestamps, Double.NaN);
     for (int i = 0; i < io.length; i++) {
       inputs[i] = new VisionIO.VisionIOInputs();
       disconnectedAlerts[i] =
@@ -158,12 +163,22 @@ public final class VisionSubsystem extends SubsystemBase {
 
     // All four Limelights are intentionally active and independently fused.
     for (int i = 0; i < io.length; i++) {
-      addVisionMeasurement(CAMERA_NAMES[i], inputs[i], !spinningTooFast);
+      addVisionMeasurement(i, !spinningTooFast);
     }
   }
 
-  private void addVisionMeasurement(String cameraName, VisionIO.VisionIOInputs camera, boolean allowed) {
-    boolean accepted = allowed && camera.hasEstimate;
+  private void addVisionMeasurement(int cameraIndex, boolean allowed) {
+    String cameraName = CAMERA_NAMES[cameraIndex];
+    VisionIO.VisionIOInputs camera = inputs[cameraIndex];
+
+    // Limelights keep publishing their last estimate, so the same frame shows up every loop until
+    // a new one arrives, and forever after a camera drops off. Fuse each frame once, and only from
+    // a camera that is still updating.
+    boolean newFrame =
+        camera.hasEstimate && camera.timestampSeconds != lastFrameTimestamps[cameraIndex];
+    lastFrameTimestamps[cameraIndex] = camera.timestampSeconds;
+
+    boolean accepted = allowed && camera.connected && newFrame;
     Logger.recordOutput("Vision/" + cameraName + "/Accepted", accepted);
     if (!accepted) {
       return;
