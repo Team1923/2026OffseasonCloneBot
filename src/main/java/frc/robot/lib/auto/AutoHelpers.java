@@ -50,6 +50,13 @@ public final class AutoHelpers {
     if (path == null) {
       return generateBlankCommand();
     }
+    if (!AutoBuilder.isConfigured()) {
+      // AutoBuilder.followPath throws if SwerveSubsystem could not configure AutoBuilder (e.g. a
+      // missing deploy/pathplanner/settings.json), and building an auto must never crash the robot.
+      DriverStation.reportError(
+          "AutoBuilder is not configured; skipping path " + path.name, false);
+      return generateBlankCommand();
+    }
 
     return AutoBuilder.followPath(path);
   }
