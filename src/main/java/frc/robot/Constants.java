@@ -157,8 +157,9 @@ public final class Constants {
                 new CurrentLimitsConfigs()
                     .withStatorCurrentLimitEnable(true)
                     .withSupplyCurrentLimitEnable(true)
-                    .withStatorCurrentLimit(0)
-                    .withSupplyCurrentLimit(0))
+                    // A 0 A limit is a real limit in Phoenix and leaves the motor with no torque.
+                    .withStatorCurrentLimit(60) // TODO: tune
+                    .withSupplyCurrentLimit(40))
             .withFeedback(new FeedbackConfigs().withSensorToMechanismRatio(GEAR_RATIO))
             .withMotorOutput(
                 new MotorOutputConfigs()
