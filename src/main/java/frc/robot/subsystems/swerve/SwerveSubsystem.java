@@ -301,8 +301,12 @@ public class SwerveSubsystem extends SubsystemBase {
          * disabled.
          * This ensures driving behavior doesn't change until an explicit disable event
          * occurs during testing.
+         * Wait until the DS reports an alliance: isRedAlliance defaults to blue before
+         * then, and latching that default after a mid-match restart would leave red
+         * driving inverted for the rest of the match.
          */
-        if (!m_hasAppliedOperatorPerspective || DriverStation.isDisabled()) {
+        if ((!m_hasAppliedOperatorPerspective || DriverStation.isDisabled())
+                && DriverStation.getAlliance().isPresent()) {
             io.setOperatorPerspectiveForward(
                     stateHandler.isRedAlliance
                             ? kRedAlliancePerspectiveRotation
