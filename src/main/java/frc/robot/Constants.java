@@ -138,7 +138,7 @@ public final class Constants {
                     .withSupplyCurrentLimitEnable(true)
                     .withStatorCurrentLimit(90)
                     .withSupplyCurrentLimit(40))
-            .withFeedback(new FeedbackConfigs().withRotorToSensorRatio(ROLLER_GEAR_RATIO));
+            .withFeedback(new FeedbackConfigs().withSensorToMechanismRatio(ROLLER_GEAR_RATIO));
 
     private IntakeConstants() {}
   }
