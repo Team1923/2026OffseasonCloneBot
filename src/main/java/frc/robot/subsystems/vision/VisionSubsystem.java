@@ -24,6 +24,8 @@ import org.littletonrobotics.junction.Logger;
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
 public final class VisionSubsystem extends SubsystemBase {
   private static final String[] CAMERA_NAMES = {"FrontLeft", "FrontRight", "RearLeft", "RearRight"};
+  /** Tier 1: multiple tags. Tier 2: one tag with low ambiguity. Tier 3 is never trusted. */
+  private static final int WORST_TRUSTED_MT1_TIER = 2;
 
   private static VisionSubsystem visionSubsystem;
 
@@ -101,7 +103,9 @@ public final class VisionSubsystem extends SubsystemBase {
     int best = getBestMt1Camera();
 
     if (best < 0) {
-      DriverStation.reportWarning("Could not zero pose: No Limelights have a target.", false);
+      DriverStation.reportWarning(
+          "Could not zero pose: No connected Limelight has a trustworthy MegaTag1 estimate.",
+          false);
       return;
     }
 
@@ -111,13 +115,17 @@ public final class VisionSubsystem extends SubsystemBase {
   }
 
   /**
-   * Index of the camera with the best MegaTag1 estimate, or -1 if none see a tag. Lower quality
-   * tier wins; ties go to the closer average tag distance.
+   * Index of the connected camera with the best MegaTag1 estimate, or -1 if none has one worth
+   * trusting. Lower quality tier wins; ties go to the closer average tag distance. Disconnected
+   * cameras still hold their last estimate, and tier 3 (one tag, high ambiguity) can be a flipped
+   * pose, so neither is ever used.
    */
   public int getBestMt1Camera() {
     int best = -1;
     for (int i = 0; i < inputs.length; i++) {
-      if (!inputs[i].hasMegaTag1Estimate) {
+      if (!inputs[i].connected
+          || !inputs[i].hasMegaTag1Estimate
+          || getQualityTier(inputs[i]) > WORST_TRUSTED_MT1_TIER) {
         continue;
       }
       if (best < 0 || compareMt1Quality(inputs[i], inputs[best]) < 0) {
