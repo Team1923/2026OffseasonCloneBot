@@ -86,7 +86,16 @@ public final class Constants {
     public static final double ARM_GEAR_RATIO = 1.0;
     public static final double ROLLER_GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double ARM_POSITION_TOLERANCE_DEGREES = 10.0;
+    /** Arm angle at the stowed hard stop; the encoder is set to this when homing finishes. */
     public static final double ARM_ZERO_OFFSET_DEGREES = 0.0; // TODO: calibrate
+
+    // Homing drives the arm into its stowed hard stop and zeroes it there. TODO: set the voltage
+    // sign so it drives toward the stowed hard stop, then tune all of these on the robot.
+    public static final double ARM_HOMING_VOLTS = -2.0;
+    public static final double ARM_HOMING_STALL_CURRENT_AMPS = 30.0;
+    public static final double ARM_HOMING_STALL_VELOCITY_DEGREES_PER_SECOND = 5.0;
+    public static final double ARM_HOMING_STALL_SECONDS = 0.25;
+    public static final double ARM_HOMING_TIMEOUT_SECONDS = 3.0;
 
     // Simulation-only mechanism inertia. TODO: estimate from CAD
     public static final double ARM_SIM_MOI_KG_METERS_SQUARED = 0.1;

@@ -4,11 +4,15 @@
 
 package frc.robot.subsystems.intake;
 
+import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.controls.PositionVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
+import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.filter.Debouncer.DebounceType;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
@@ -66,6 +70,11 @@ public final class IntakeSubsystem extends SubsystemBase {
   private final IntakeIO io;
   private final IntakeIO.IntakeIOInputs inputs = new IntakeIO.IntakeIOInputs();
 
+  private final VoltageOut armHomingRequest =
+      new VoltageOut(IntakeConstants.ARM_HOMING_VOLTS).withIgnoreSoftwareLimits(true);
+  private final NeutralOut armNeutralRequest = new NeutralOut();
+  private boolean armHomed = false;
+
   private final Alert armDisconnectedAlert =
       new Alert("Intake arm motor disconnected", AlertType.kError);
   private final Alert rollerDisconnectedAlert =
@@ -73,7 +82,6 @@ public final class IntakeSubsystem extends SubsystemBase {
 
   private IntakeSubsystem(IntakeIO io) {
     this.io = io;
-    zeroIntakeArm();
   }
 
   @Override
@@ -83,6 +91,7 @@ public final class IntakeSubsystem extends SubsystemBase {
 
     armDisconnectedAlert.set(!inputs.armConnected);
     rollerDisconnectedAlert.set(!inputs.rollerConnected);
+    Logger.recordOutput("Intake/Arm/Homed", armHomed);
   }
 
   public double getArmPositionDegrees() {
@@ -120,6 +129,49 @@ public final class IntakeSubsystem extends SubsystemBase {
 
   public void zeroIntakeArm() {
     io.setArmPosition(IntakeConstants.ARM_ZERO_OFFSET_DEGREES);
+  }
+
+  /** Whether the arm has been zeroed against its hard stop since robot code started. */
+  public boolean isArmHomed() {
+    return armHomed;
+  }
+
+  /** Leaves the arm unpowered. The state machine uses this until the arm has been homed. */
+  public void stopArm() {
+    io.setArmControl(armNeutralRequest);
+  }
+
+  /**
+   * Drives the arm into its stowed hard stop and zeroes the encoder there. The TalonFX keeps its
+   * position across robot-code restarts, so zeroing at startup would make wherever the arm happens
+   * to be the new zero. Requires the intake, so the state machine pauses while this runs.
+   */
+  public Command homeArmCommand() {
+    Debouncer stallDebouncer =
+        new Debouncer(IntakeConstants.ARM_HOMING_STALL_SECONDS, DebounceType.kRising);
+    return startRun(
+            () -> stallDebouncer.calculate(false), () -> io.setArmControl(armHomingRequest))
+        .until(() -> stallDebouncer.calculate(isArmStalled()))
+        .finallyDo(
+            interrupted -> {
+              io.setArmControl(armNeutralRequest);
+              if (interrupted) {
+                DriverStation.reportWarning(
+                    "Intake arm homing did not finish; the arm stays unpowered until it homes",
+                    false);
+              } else {
+                zeroIntakeArm();
+                armHomed = true;
+              }
+            })
+        .withTimeout(IntakeConstants.ARM_HOMING_TIMEOUT_SECONDS)
+        .withName("IntakeHomeArm");
+  }
+
+  private boolean isArmStalled() {
+    return Math.abs(inputs.armStatorCurrentAmps) > IntakeConstants.ARM_HOMING_STALL_CURRENT_AMPS
+        && Math.abs(inputs.armVelocityDegreesPerSecond)
+            < IntakeConstants.ARM_HOMING_STALL_VELOCITY_DEGREES_PER_SECOND;
   }
 
   public Command intakeCommand() {

@@ -4,6 +4,7 @@
 
 package frc.robot;
 
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.CommandPS5Controller;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
@@ -68,6 +69,11 @@ public class RobotContainer {
     rollersSubsystem.setDefaultCommand(new RollersStateMachine(rollersSubsystem));
     shooterSubsystem.setDefaultCommand(
         new ShooterStateMachine(shooterSubsystem, visionSubsystem));
+
+    // Home the intake arm on the first enable, and again on the next enable if homing failed.
+    new Trigger(DriverStation::isEnabled)
+        .and(() -> !intakeSubsystem.isArmHomed())
+        .onTrue(intakeSubsystem.homeArmCommand());
 
     // Driver Bindings
     driverController

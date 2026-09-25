@@ -4,6 +4,7 @@ import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.hardware.TalonFX;
+import com.ctre.phoenix6.signals.InvertedValue;
 import edu.wpi.first.math.filter.Debouncer;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
@@ -173,12 +174,7 @@ public interface IntakeIO {
 
   /** Simulated intake: the TalonFX control loops run in Phoenix sim against DC motor physics. */
   class Sim extends Real {
-    private final TalonFXMotorSim armSim =
-        new TalonFXMotorSim(
-            arm,
-            DCMotor.getKrakenX60(1),
-            IntakeConstants.ARM_SIM_MOI_KG_METERS_SQUARED,
-            IntakeConstants.ARM_GEAR_RATIO);
+    private final TalonFXMotorSim armSim = armSimStartingOnStowedHardStop(arm);
     private final TalonFXMotorSim rollerSim =
         new TalonFXMotorSim(
             roller,
@@ -191,6 +187,26 @@ public interface IntakeIO {
       armSim.update();
       rollerSim.update();
       super.updateInputs(inputs);
+    }
+
+    /**
+     * The simulated arm starts resting on its stowed hard stop, so homing stalls against it like on
+     * the robot. The stop is on the side the homing voltage drives toward; sim-state positions are
+     * counter-clockwise positive whatever the invert, so a clockwise-positive motor flips the side.
+     */
+    private static TalonFXMotorSim armSimStartingOnStowedHardStop(TalonFX arm) {
+      TalonFXMotorSim sim =
+          new TalonFXMotorSim(
+              arm,
+              DCMotor.getKrakenX60(1),
+              IntakeConstants.ARM_SIM_MOI_KG_METERS_SQUARED,
+              IntakeConstants.ARM_GEAR_RATIO);
+      boolean clockwisePositive =
+          IntakeConstants.ARM_CONFIG.MotorOutput.Inverted == InvertedValue.Clockwise_Positive;
+      boolean homesTowardPositive = (IntakeConstants.ARM_HOMING_VOLTS > 0) != clockwisePositive;
+      return homesTowardPositive
+          ? sim.withHardStops(Double.NEGATIVE_INFINITY, 0)
+          : sim.withHardStops(0, Double.POSITIVE_INFINITY);
     }
   }
 }

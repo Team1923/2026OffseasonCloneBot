@@ -35,10 +35,16 @@ public final class IntakeStateMachine extends Command {
       desiredIntakeRollerState = IntakeRollerState.REST;
     }
 
-    intake.applyArmState(desiredIntakeArmState);
+    // Until the arm is homed its encoder zero is unknown, so position control could drive it into
+    // the frame. Leave it unpowered and never report it as having reached a state.
+    if (intake.isArmHomed()) {
+      intake.applyArmState(desiredIntakeArmState);
+    } else {
+      intake.stopArm();
+    }
     intake.applyRollerState(desiredIntakeRollerState);
 
-    if (intake.atArmState(desiredIntakeArmState)) {
+    if (intake.isArmHomed() && intake.atArmState(desiredIntakeArmState)) {
       stateHandler.currentIntakeArmState = desiredIntakeArmState;
     }
     if (intake.atRollerState(desiredIntakeRollerState)) {
