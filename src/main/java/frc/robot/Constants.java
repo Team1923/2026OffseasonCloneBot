@@ -14,7 +14,6 @@ import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.signals.GravityTypeValue;
 import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
-import com.ctre.phoenix6.swerve.utility.PhoenixPIDController;
 import com.pathplanner.lib.path.PathConstraints;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -270,8 +269,10 @@ public final class Constants {
   public static final class SwerveConstants {
     public static final double MAX_DRIVE_ANGULAR_VELOCITY = Units.degreesToRadians(720);
     public static final double HEADING_TOLERANCE_DEGREES = 5.0;
-    public static final PhoenixPIDController HEADING_CONTROLLER =
-        new PhoenixPIDController(3 * Math.PI, 0, 0); // TODO: need to tune
+    // Heading-lock gains, in rad/s of rotation per radian of heading error. TODO: need to tune
+    public static final double HEADING_KP = 3 * Math.PI;
+    public static final double HEADING_KI = 0;
+    public static final double HEADING_KD = 0;
     public static final PathConstraints PATHING_CONSTRAINTS =
         new PathConstraints(
             2.25, 2.25, Units.degreesToRadians(360), Units.degreesToRadians(360));

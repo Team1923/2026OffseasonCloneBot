@@ -29,7 +29,19 @@ public final class SwerveStateMachine extends Command {
           .withSteerRequestType(SteerRequestType.Position);
 
   private static final SwerveRequest.FieldCentricFacingAngle FACING_HEADING_REQUEST =
-      createFacingHeadingRequest();
+      new SwerveRequest.FieldCentricFacingAngle()
+          .withDriveRequestType(DriveRequestType.Velocity)
+          .withSteerRequestType(SteerRequestType.Position)
+          // desiredSwerveHeading is a blue-origin field angle. Without this, CTRE also rotates it
+          // by the operator perspective, so on red the robot faces 180 degrees away from the
+          // target. Translation still follows the operator perspective.
+          .withTargetDirectionPerspective(
+              SwerveRequest.TargetDirectionPerspectiveValue.BlueAlliance)
+          // Set gains on CTRE's own controller: it has continuous input enabled, so the robot
+          // turns the short way across +/-180 degrees. A replacement controller would not.
+          .withHeadingPID(
+              SwerveConstants.HEADING_KP, SwerveConstants.HEADING_KI, SwerveConstants.HEADING_KD)
+          .withMaxAbsRotationalRate(SwerveConstants.MAX_DRIVE_ANGULAR_VELOCITY);
 
   private final DoubleSupplier translationSupplier;
   private final DoubleSupplier strafeSupplier;
@@ -98,19 +110,5 @@ public final class SwerveStateMachine extends Command {
 
   private static double deadband(double input) {
     return MathUtil.applyDeadband(input, ControllerConstants.DRIVER_DEADBAND);
-  }
-
-  private static SwerveRequest.FieldCentricFacingAngle createFacingHeadingRequest() {
-    var request =
-        new SwerveRequest.FieldCentricFacingAngle()
-            .withDriveRequestType(DriveRequestType.Velocity)
-            .withSteerRequestType(SteerRequestType.Position)
-            // desiredSwerveHeading is a blue-origin field angle. Without this, CTRE also rotates it
-            // by the operator perspective, so on red the robot faces 180 degrees away from the
-            // target. Translation still follows the operator perspective.
-            .withTargetDirectionPerspective(
-                SwerveRequest.TargetDirectionPerspectiveValue.BlueAlliance);
-    request.HeadingController = SwerveConstants.HEADING_CONTROLLER;
-    return request;
   }
 }
