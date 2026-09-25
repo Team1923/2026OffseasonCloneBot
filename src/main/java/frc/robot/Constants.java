@@ -180,12 +180,13 @@ public final class Constants {
   }
 
   public static final class ShooterConstants {
-    // Values carried from the in-progress shooter branch; verify CAN-bus conflicts before use.
-    public static final int HOOD_MOTOR_ID = 10;
-    public static final int DRUM_LEADER_ID = 11;
-    public static final int DRUM_FOLLOWER_ONE_ID = 12;
-    public static final int DRUM_FOLLOWER_TWO_ID = 13;
-    public static final int DRUM_FOLLOWER_THREE_ID = 14;
+    // Kept clear of every other device ID (swerve uses 1-12, Pigeon 21), so nothing collides even
+    // if the swerve and shooter end up on the same CAN bus. Set the motors to match in Tuner X.
+    public static final int HOOD_MOTOR_ID = 22;
+    public static final int DRUM_LEADER_ID = 23;
+    public static final int DRUM_FOLLOWER_ONE_ID = 24;
+    public static final int DRUM_FOLLOWER_TWO_ID = 25;
+    public static final int DRUM_FOLLOWER_THREE_ID = 26;
 
     public static final double HOOD_GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double DRUM_GEAR_RATIO = 1.0; // TODO: get from CAD
