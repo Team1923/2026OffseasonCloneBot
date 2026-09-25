@@ -341,7 +341,15 @@ public class SwerveSubsystem extends SubsystemBase {
         return robotRelativeHeading.plus(getPose().getRotation());
     }
 
+    /**
+     * Drives from wherever the robot is when this starts to {@code waypoint}. The path is built at
+     * schedule time, not when this factory is called, so the command can be bound to a button.
+     */
     public Command onTheFlyPath(Pose2d waypoint) {
+        return defer(() -> buildOnTheFlyPath(waypoint));
+    }
+
+    private Command buildOnTheFlyPath(Pose2d waypoint) {
 
         // List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
         // getPose(),
