@@ -54,6 +54,18 @@ public final class AutoHelpers {
     return AutoBuilder.followPath(path);
   }
 
+  // Resets odometry to where the path starts (flipped for red), so an auto begins with the right
+  // heading even if vision never saw a tag while disabled. Does nothing if the path failed to load.
+  public static Command resetPoseToPathStart(PathPlannerPath path) {
+    if (path == null || !AutoBuilder.isConfigured()) {
+      return generateBlankCommand();
+    }
+
+    return path.getStartingHolonomicPose()
+        .map(AutoBuilder::resetOdom)
+        .orElseGet(AutoHelpers::generateBlankCommand);
+  }
+
   public static Command generateBlankCommand() {
     return new Command() {
       @Override

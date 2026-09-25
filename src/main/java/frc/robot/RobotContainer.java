@@ -70,7 +70,12 @@ public class RobotContainer {
         new ShooterStateMachine(shooterSubsystem, visionSubsystem));
 
     // Driver Bindings
-    driverController.x().onTrue(swerveSubsystem.runOnce(() -> visionSubsystem.zeroPoseToMT1()));
+    driverController
+        .x()
+        .onTrue(
+            swerveSubsystem
+                .runOnce(() -> visionSubsystem.zeroPoseToMT1())
+                .ignoringDisable(true));
     Trigger shootTrigger = driverController.rightTrigger();
     shootTrigger
         .and(() -> stateHandler.scoringMode == ScoringMode.RANGED)

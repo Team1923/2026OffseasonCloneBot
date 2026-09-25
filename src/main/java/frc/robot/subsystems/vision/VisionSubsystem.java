@@ -165,6 +165,19 @@ public final class VisionSubsystem extends SubsystemBase {
       disconnectedAlerts[i].set(!inputs[i].connected);
     }
 
+    // The gyro boots at 0 whichever way the robot faces, and MegaTag2 trusts that heading without
+    // ever correcting it. While disabled, seed the whole pose from a multi-tag MegaTag1 estimate so
+    // the heading is right before the match starts.
+    boolean seedingPose = false;
+    if (DriverStation.isDisabled()) {
+      int best = getBestMt1Camera();
+      if (best >= 0 && inputs[best].megaTag1TagCount >= 2) {
+        swerve.resetPose(inputs[best].megaTag1Pose);
+        seedingPose = true;
+      }
+    }
+    Logger.recordOutput("Vision/SeedingPoseWhileDisabled", seedingPose);
+
     // Reject measurements while spinning too quickly for reliable pose estimates.
     boolean spinningTooFast = Math.abs(swerve.getYawVelocityDegreesPerSecond()) >= 720;
     Logger.recordOutput("Vision/RejectedForSpin", spinningTooFast);
