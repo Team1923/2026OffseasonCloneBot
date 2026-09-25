@@ -104,7 +104,12 @@ public final class SwerveStateMachine extends Command {
     var request =
         new SwerveRequest.FieldCentricFacingAngle()
             .withDriveRequestType(DriveRequestType.Velocity)
-            .withSteerRequestType(SteerRequestType.Position);
+            .withSteerRequestType(SteerRequestType.Position)
+            // desiredSwerveHeading is a blue-origin field angle. Without this, CTRE also rotates it
+            // by the operator perspective, so on red the robot faces 180 degrees away from the
+            // target. Translation still follows the operator perspective.
+            .withTargetDirectionPerspective(
+                SwerveRequest.TargetDirectionPerspectiveValue.BlueAlliance);
     request.HeadingController = SwerveConstants.HEADING_CONTROLLER;
     return request;
   }
