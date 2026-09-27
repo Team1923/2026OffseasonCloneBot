@@ -7,7 +7,9 @@ package frc.robot.statemachines;
 import com.ctre.phoenix6.swerve.SwerveModule.DriveRequestType;
 import com.ctre.phoenix6.swerve.SwerveModule.SteerRequestType;
 import com.ctre.phoenix6.swerve.SwerveRequest;
+import com.ctre.phoenix6.swerve.SwerveRequest.TargetDirectionPerspectiveValue;
 import edu.wpi.first.math.MathUtil;
+import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.Command;
 import frc.robot.Constants.ControllerConstants;
@@ -15,6 +17,7 @@ import frc.robot.Constants.SwerveConstants;
 import frc.robot.StateHandler;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
 import java.util.function.DoubleSupplier;
+import org.littletonrobotics.junction.Logger;
 
 /** Default teleop drive command with field-, robot-, and heading-centric modes. */
 public final class SwerveStateMachine extends Command {
@@ -81,11 +84,13 @@ public final class SwerveStateMachine extends Command {
                   .withVelocityX(velocityX)
                   .withVelocityY(velocityY)
                   .withRotationalRate(rotationalRate);
-          case FACING_HEADING ->
-              FACING_HEADING_REQUEST
+          case FACING_HEADING -> {
+              logHeadingTracking();
+              yield FACING_HEADING_REQUEST
                   .withVelocityX(velocityX)
                   .withVelocityY(velocityY)
                   .withTargetDirection(stateHandler.desiredSwerveHeading);
+          }
         };
 
     swerve.setControl(request);
@@ -96,16 +101,40 @@ public final class SwerveStateMachine extends Command {
     return false;
   }
 
+  /** Records what heading control is being asked to do, to diagnose aiming problems from a log. */
+  private void logHeadingTracking() {
+    Rotation2d desiredHeading = stateHandler.desiredSwerveHeading;
+    Rotation2d currentHeading = swerve.getPose().getRotation();
+    double errorDegrees = desiredHeading.minus(currentHeading).getDegrees();
+
+    Logger.recordOutput("Swerve/FacingHeading/DesiredDegrees", desiredHeading.getDegrees());
+    Logger.recordOutput("Swerve/FacingHeading/CurrentDegrees", currentHeading.getDegrees());
+    Logger.recordOutput("Swerve/FacingHeading/ErrorDegrees", errorDegrees);
+    Logger.recordOutput(
+        "Swerve/FacingHeading/WithinTolerance",
+        Math.abs(errorDegrees) < SwerveConstants.HEADING_TOLERANCE_DEGREES);
+  }
+
   private static double deadband(double input) {
     return MathUtil.applyDeadband(input, ControllerConstants.DRIVER_DEADBAND);
   }
 
-  private static SwerveRequest.FieldCentricFacingAngle createFacingHeadingRequest() {
+  /** Package-private for {@code SwerveStateMachineTest}. */
+  static SwerveRequest.FieldCentricFacingAngle createFacingHeadingRequest() {
     var request =
         new SwerveRequest.FieldCentricFacingAngle()
             .withDriveRequestType(DriveRequestType.Velocity)
-            .withSteerRequestType(SteerRequestType.Position);
+            .withSteerRequestType(SteerRequestType.Position)
+            // Desired headings are computed from blue-origin poses, so heading control must ignore
+            // the operator perspective. Without this, CTRE rotates the target by the operator
+            // forward direction, which is 180 degrees on red: the robot faces exactly away from
+            // the target. Translation keeps the operator perspective for the driver.
+            .withTargetDirectionPerspective(TargetDirectionPerspectiveValue.BlueAlliance);
+
     request.HeadingController = SwerveConstants.HEADING_CONTROLLER;
+    // Assigning our own controller replaces the one CTRE wraps at -180..180 degrees, so wrapping
+    // has to be re-enabled or the heading error can take the long way around.
+    request.HeadingController.enableContinuousInput(-Math.PI, Math.PI);
     return request;
   }
 }
