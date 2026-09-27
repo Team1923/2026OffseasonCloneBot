@@ -23,6 +23,13 @@ public final class RollersStateMachine extends Command {
   @Override
   public void execute() {
     RollerFloorState desiredRollerFloorState = stateHandler.desiredRollerFloorState;
+
+    // The beam-break sensor says a ball is staged in the feed path. Stop intaking so the
+    // robot can hold a staged piece and prepare to shoot without overloading the feed.
+    if (desiredRollerFloorState == RollerFloorState.INTAKE && rollers.hasPiece()) {
+      desiredRollerFloorState = RollerFloorState.REST;
+    }
+
     rollers.applyState(desiredRollerFloorState);
 
     if (rollers.atState(desiredRollerFloorState)) {

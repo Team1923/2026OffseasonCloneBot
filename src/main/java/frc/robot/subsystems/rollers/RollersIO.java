@@ -10,6 +10,7 @@ import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
+import edu.wpi.first.wpilibj.DigitalInput;
 import frc.robot.Constants.RollersConstants;
 import frc.robot.lib.sim.TalonFXMotorSim;
 import org.littletonrobotics.junction.LogTable;
@@ -28,6 +29,7 @@ public interface RollersIO {
   /** Every sensor value the rollers read. Add new fields to {@code toLog} and {@code fromLog}. */
   class RollersIOInputs implements LoggableInputs {
     public boolean floorConnected = false;
+    public boolean pieceDetected = false;
     public double floorVelocityRpm = 0.0;
     public double floorAppliedVolts = 0.0;
     public double floorSupplyCurrentAmps = 0.0;
@@ -37,6 +39,7 @@ public interface RollersIO {
     @Override
     public void toLog(LogTable table) {
       table.put("FloorConnected", floorConnected);
+      table.put("PieceDetected", pieceDetected);
       table.put("FloorVelocityRpm", floorVelocityRpm);
       table.put("FloorAppliedVolts", floorAppliedVolts);
       table.put("FloorSupplyCurrentAmps", floorSupplyCurrentAmps);
@@ -47,6 +50,7 @@ public interface RollersIO {
     @Override
     public void fromLog(LogTable table) {
       floorConnected = table.get("FloorConnected", floorConnected);
+      pieceDetected = table.get("PieceDetected", pieceDetected);
       floorVelocityRpm = table.get("FloorVelocityRpm", floorVelocityRpm);
       floorAppliedVolts = table.get("FloorAppliedVolts", floorAppliedVolts);
       floorSupplyCurrentAmps = table.get("FloorSupplyCurrentAmps", floorSupplyCurrentAmps);
@@ -64,6 +68,8 @@ public interface RollersIO {
   /** Real rollers hardware: one TalonFX motor controller. */
   class Real implements RollersIO {
     protected final TalonFX floorMotor = new TalonFX(RollersConstants.MOTOR_ID);
+    protected final DigitalInput beamBreak =
+        new DigitalInput(RollersConstants.BEAM_BREAK_DIO_PORT);
 
     private final StatusSignal<AngularVelocity> velocity = floorMotor.getVelocity();
     private final StatusSignal<Voltage> appliedVolts = floorMotor.getMotorVoltage();
@@ -84,6 +90,7 @@ public interface RollersIO {
               velocity, appliedVolts, supplyCurrent, statorCurrent, temperature);
 
       inputs.floorConnected = connectedDebounce.calculate(status.isOK());
+      inputs.pieceDetected = !beamBreak.get(); // TODO: verify polarity on the real sensor
       inputs.floorVelocityRpm = velocity.getValueAsDouble() * 60.0;
       inputs.floorAppliedVolts = appliedVolts.getValueAsDouble();
       inputs.floorSupplyCurrentAmps = supplyCurrent.getValueAsDouble();

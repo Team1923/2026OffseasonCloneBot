@@ -146,6 +146,7 @@ public final class Constants {
 
   public static final class RollersConstants {
     public static final int MOTOR_ID = 17; // TODO: placeholder ID, unique so sim devices don't collide
+    public static final int BEAM_BREAK_DIO_PORT = 0; // TODO: verify the real DIO port on the robot
     public static final double GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double RPM_TOLERANCE = 100.0; // TODO: tune
 

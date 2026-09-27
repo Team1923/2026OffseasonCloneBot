@@ -72,11 +72,17 @@ public final class RollersSubsystem extends SubsystemBase {
     return inputs.floorVelocityRpm;
   }
 
+  /** Returns whether a game piece is staged in the roller path. */
+  public boolean hasPiece() {
+    return inputs.pieceDetected;
+  }
+
   /** Applies the desired state. Ordinary commands request states instead of calling this. */
   public void applyState(RollerFloorState desiredState) {
     io.setFloorControl(desiredState.request);
     Logger.recordOutput("Rollers/Floor/AppliedState", desiredState);
     Logger.recordOutput("Rollers/Floor/SetpointRpm", desiredState.request.Velocity * 60.0);
+    Logger.recordOutput("Rollers/Floor/PieceDetected", inputs.pieceDetected);
   }
 
   public boolean atState(RollerFloorState desiredState) {
