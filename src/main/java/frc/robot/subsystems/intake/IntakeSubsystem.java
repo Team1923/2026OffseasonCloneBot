@@ -4,7 +4,7 @@
 
 package frc.robot.subsystems.intake;
 
-import com.ctre.phoenix6.controls.PositionVoltage;
+import com.ctre.phoenix6.controls.MotionMagicVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj.Alert;
@@ -38,14 +38,15 @@ public final class IntakeSubsystem extends SubsystemBase {
     DEPLOYED(positionRequest(0)),
     EXTENDED(positionRequest(0));
 
-    public final PositionVoltage request;
+    public final MotionMagicVoltage request;
 
-    IntakeArmState(PositionVoltage request) {
+    IntakeArmState(MotionMagicVoltage request) {
       this.request = request;
     }
 
-    private static PositionVoltage positionRequest(double degrees) {
-      return new PositionVoltage(Units.degreesToRotations(degrees));
+    /** Motion Magic profiles the swing instead of stepping to it, which the arm's travel needs. */
+    private static MotionMagicVoltage positionRequest(double degrees) {
+      return new MotionMagicVoltage(Units.degreesToRotations(degrees));
     }
   }
 
