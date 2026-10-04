@@ -153,31 +153,39 @@ public final class Constants {
   }
 
   public static final class RollersConstants {
-    public static final int MOTOR_ID = 17; // TODO: placeholder ID, unique so sim devices don't collide
-    public static final double GEAR_RATIO = 1.0; // TODO: get from CAD
+    public static final int MOTOR_ID = 17; // TODO: verify against the robot CAN map
+    public static final int FEEDER_MOTOR_ONE_ID = 18; // TODO: verify against the robot CAN map
+    public static final int FEEDER_MOTOR_TWO_ID = 19; // TODO: verify against the robot CAN map
+    public static final double GEAR_RATIO = 3.0;
+    public static final double FEEDER_GEAR_RATIO = 5.0 / 2.0;
     public static final double RPM_TOLERANCE = 100.0; // TODO: tune
 
     // Simulation-only mechanism inertia. TODO: estimate from CAD
     public static final double SIM_MOI_KG_METERS_SQUARED = 0.002;
 
-    public static final TalonFXConfiguration MOTOR_CONFIG =
-        new TalonFXConfiguration()
-            // Were 0 A with the limits enabled, which allowed no output at all. TODO: confirm.
-            .withCurrentLimits(
-                new CurrentLimitsConfigs()
-                    .withStatorCurrentLimitEnable(true)
-                    .withSupplyCurrentLimitEnable(true)
-                    .withStatorCurrentLimit(60)
-                    .withSupplyCurrentLimit(40))
-            .withFeedback(new FeedbackConfigs().withSensorToMechanismRatio(GEAR_RATIO))
-            .withMotorOutput(
-                new MotorOutputConfigs()
-                    .withInverted(InvertedValue.Clockwise_Positive)
-                    .withNeutralMode(NeutralModeValue.Coast))
-            // Starting points only. kV 0.12 = 12 V / 100 rot/s free speed (Kraken X60), scaled by
-            // GEAR_RATIO once it is known. kS is higher than a flywheel because this drags game
-            // pieces. TODO: tune kS, then kV, then kP.
-            .withSlot0(new Slot0Configs().withKS(0.25).withKV(0.12).withKP(0.10));
+    public static final TalonFXConfiguration MOTOR_CONFIG = motorConfig(GEAR_RATIO);
+    public static final TalonFXConfiguration FEEDER_MOTOR_CONFIG =
+        motorConfig(FEEDER_GEAR_RATIO);
+
+    private static TalonFXConfiguration motorConfig(double gearRatio) {
+      return new TalonFXConfiguration()
+          // Were 0 A with the limits enabled, which allowed no output at all. TODO: confirm.
+          .withCurrentLimits(
+              new CurrentLimitsConfigs()
+                  .withStatorCurrentLimitEnable(true)
+                  .withSupplyCurrentLimitEnable(true)
+                  .withStatorCurrentLimit(60)
+                  .withSupplyCurrentLimit(40))
+          .withFeedback(new FeedbackConfigs().withSensorToMechanismRatio(gearRatio))
+          .withMotorOutput(
+              new MotorOutputConfigs()
+                  .withInverted(InvertedValue.Clockwise_Positive)
+                  .withNeutralMode(NeutralModeValue.Coast))
+          // Starting points only. kV 0.12 = 12 V / 100 rot/s free speed (Kraken X60), scaled by
+          // the mechanism gear ratio. kS is higher than a flywheel because this drags game pieces.
+          // TODO: tune kS, then kV, then kP.
+          .withSlot0(new Slot0Configs().withKS(0.25).withKV(0.12).withKP(0.10));
+    }
 
     private RollersConstants() {}
   }

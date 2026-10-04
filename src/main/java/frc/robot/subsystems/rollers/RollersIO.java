@@ -3,7 +3,9 @@ package frc.robot.subsystems.rollers;
 import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.controls.ControlRequest;
+import com.ctre.phoenix6.controls.Follower;
 import com.ctre.phoenix6.hardware.TalonFX;
+import com.ctre.phoenix6.signals.MotorAlignmentValue;
 import edu.wpi.first.math.filter.Debouncer;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.units.measure.AngularVelocity;
@@ -19,7 +21,7 @@ import org.littletonrobotics.junction.inputs.LoggableInputs;
  * Hardware layer for the hopper floor roller.
  *
  * <ul>
- *   <li>{@link Real} talks to the TalonFX on the robot.
+ *   <li>{@link Real} talks to the floor TalonFX and its two feeder followers on the robot.
  *   <li>{@link Sim} runs the same TalonFX code against simulated physics.
  *   <li>{@code new RollersIO() {}} does nothing and is used for log replay.
  * </ul>
@@ -61,9 +63,13 @@ public interface RollersIO {
   /** Sends a Phoenix control request to the floor roller motor. */
   default void setFloorControl(ControlRequest request) {}
 
-  /** Real rollers hardware: one TalonFX motor controller. */
+  /** Real rollers hardware: one floor-roller leader and two feeder followers. */
   class Real implements RollersIO {
     protected final TalonFX floorMotor = new TalonFX(RollersConstants.MOTOR_ID);
+    protected final TalonFX feederMotorOne =
+      new TalonFX(RollersConstants.FEEDER_MOTOR_ONE_ID);
+    protected final TalonFX feederMotorTwo =
+      new TalonFX(RollersConstants.FEEDER_MOTOR_TWO_ID);
 
     private final StatusSignal<AngularVelocity> velocity = floorMotor.getVelocity();
     private final StatusSignal<Voltage> appliedVolts = floorMotor.getMotorVoltage();
@@ -75,6 +81,14 @@ public interface RollersIO {
 
     public Real() {
       floorMotor.getConfigurator().apply(RollersConstants.MOTOR_CONFIG);
+      feederMotorOne.getConfigurator().apply(RollersConstants.FEEDER_MOTOR_CONFIG);
+      feederMotorTwo.getConfigurator().apply(RollersConstants.FEEDER_MOTOR_CONFIG);
+
+      // TODO: Verify each feeder motor's physical direction before enabling the mechanism.
+      feederMotorOne.setControl(
+        new Follower(floorMotor.getDeviceID(), MotorAlignmentValue.Aligned));
+      feederMotorTwo.setControl(
+        new Follower(floorMotor.getDeviceID(), MotorAlignmentValue.Aligned));
     }
 
     @Override
@@ -97,7 +111,7 @@ public interface RollersIO {
     }
   }
 
-  /** Simulated rollers: the TalonFX velocity loop runs in Phoenix sim against DC motor physics. */
+  /** Simulated floor roller: the TalonFX velocity loop runs against DC motor physics. */
   class Sim extends Real {
     private final TalonFXMotorSim floorSim =
         new TalonFXMotorSim(
