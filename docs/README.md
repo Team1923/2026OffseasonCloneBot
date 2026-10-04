@@ -8,8 +8,9 @@
    implementation order, and examples.
 4. [`SIMULATION_AND_LOGGING.md`](SIMULATION_AND_LOGGING.md) — running the
    simulator, choosing simulate or replay, AdvantageScope, and robot logs.
-5. [`MATCH_LOG_WORKFLOW.md`](MATCH_LOG_WORKFLOW.md) — after each match: collect DS logs
-   onto the robot's USB stick, then ingest and analyze everything on another computer.
+5. [`LOG_ANALYSIS_WITH_CLAUDE.md`](LOG_ANALYSIS_WITH_CLAUDE.md) — after each match:
+   collect DS logs onto the robot's USB stick, then have Claude Code analyze everything; also
+   how to test the whole thing with the simulator.
 6. [`../.claude/skills/analyze-wpilog/SKILL.md`](../.claude/skills/analyze-wpilog/SKILL.md) —
    the Claude Code skill for log reports, root-cause diagnosis, and log-verified
    fixes. In Claude Code: `/analyze-wpilog report`, `/analyze-wpilog diagnose

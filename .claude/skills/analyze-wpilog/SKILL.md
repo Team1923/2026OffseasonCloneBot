@@ -1,12 +1,13 @@
 ---
 name: analyze-wpilog
-description: Analyze AdvantageKit .wpilog logs (plus Driver Station .dslog/.dsevents) from the 2026 Offseason CloneBot - ingest logs from the robot's USB stick, generate a post-match/practice health report, find the root cause of a robot problem (mechanical, electrical, or programming), and fix code problems, verifying the fix by replaying the log. Use when the user mentions a log, wpilog, match/practice log, AdvantageScope, brownout, a mechanism misbehaving on the real robot ("hood didn't move", "shooter never fed", "intake stalled"), radio/comms drops, the log USB stick, or asks for a report, root cause, or fix based on robot data.
-argument-hint: "ingest | report [log] | diagnose <what went wrong> [log] | fix [finding]"
+description: Analyze AdvantageKit .wpilog logs (plus Driver Station .dslog/.dsevents) from the 2026 Offseason CloneBot - ingest logs from the robot's USB stick, generate a post-match/practice health report, find the root cause of a robot problem (mechanical, electrical, or programming), and fix code problems, verifying the fix by replaying the log. Use when the user mentions a log, wpilog, match/practice log, AdvantageScope, brownout, a mechanism misbehaving on the real robot ("hood didn't move", "shooter never fed", "intake stalled"), radio/comms drops, the log USB stick, testing the log workflow with the simulator, or asks for a report, root cause, or fix based on robot data.
+argument-hint: "ingest | report [log] | diagnose <what went wrong> [log] | fix [finding] | test"
 ---
 
 # Analyze robot logs (CloneBot)
 
-Four jobs. Pick from the user's words; ask only if it is genuinely unclear.
+Five jobs. Pick from the user's words; ask only if it is genuinely unclear. The user-facing
+version of this workflow is `docs/LOG_ANALYSIS_WITH_CLAUDE.md`; keep the two consistent.
 
 | User says | Job |
 |---|---|
@@ -14,6 +15,7 @@ Four jobs. Pick from the user's words; ask only if it is genuinely unclear.
 | "generate a report", "how did the match go", "anything wrong in this log" | **Report** |
 | "why did X happen", "analyze this issue", "is it mechanical or code" | **Diagnose** |
 | "fix it", "fix the code", or a diagnosis that ends in a Programming/Tuning cause | **Fix** |
+| "test the log workflow", "check the log stuff works", "try it with my sim log" | **Test** |
 
 All tools are in `scripts/` (pure Python 3.8+, no installs). Run from the repo root:
 
@@ -32,16 +34,31 @@ python .claude/skills/analyze-wpilog/scripts/analyze.py <command> ...
 | `series LOG KEY... [--from --to] [--step 0.05]` | raw values as CSV (Pose2d prints as x y heading) |
 | `compare SIMLOG` | after a replay: findings fixed/added by the code change, setpoints and states before vs after |
 | `ds DSLOG` | a Driver Station log on its own (when there is no robot log for that match) |
+| `simtest [SIMLOG]` | end-to-end check on a simulator log: fake stick, the real DS collector script, ingest, report, checklist |
 | `replay.py LOG [--no-build]` | runs the **current code** on the log's inputs, writes `LOG_sim.wpilog` |
 
 Every command that takes a robot log also pairs it with the Driver Station log recorded at the
 same time, if one is in the same folder or a `dslogs/` folder next to it (`--ds PATH` to choose,
 `--ds none` to skip). DS data adds radio link quality (packet loss, round trip, lost-comms
 events), controller unplugs, DS laptop lag, and current per power-distribution channel; DS
-messages appear in `timeline` as kind `ds`. The whole USB workflow is in
-`docs/MATCH_LOG_WORKFLOW.md`.
+messages appear in `timeline` as kind `ds`.
 
-Mechanism names for `diagnose`: `intake_arm`, `intake_roller`, `floor_roller`, `hood`, `drum`.
+### Where the analyzer gets its facts (nothing to keep in sync by hand)
+
+- **Mechanisms come from the log.** Any `RealOutputs/<Subsystem>/<Mech>/Setpoint<Degrees|Rpm|Volts>`
+  output is a mechanism (position, velocity, or open-loop voltage), and its other keys follow the
+  codebase convention: inputs `<Subsystem>/<Mech>PositionDegrees`, `...VelocityRpm`,
+  `...AppliedVolts`, `...StatorCurrentAmps`, `...Connected`; outputs `.../<Mech>/AppliedState`;
+  states `StateHandler/<Subsystem>/Desired<Mech>State` / `Current<Mech>State`. The `diagnose`
+  name is the mechanism's lowercase name: currently `arm`, `roller`, `floor`, `hood`, `drum`.
+- **Tolerances and limits come from `Constants.java` on the checked-out branch.** In
+  `<Subsystem>Constants`: the `<MECH>_CONFIG` (or the class's only `TalonFXConfiguration`) gives
+  stator/supply limits, soft limits, and gear ratio; the `*TOLERANCE*` constant (preferring one
+  with the mechanism's name) gives the tolerance. Multi-motor names come from
+  `<MECH>_MOTOR_NAMES` in the subsystem. Anything not found falls back to a default and is listed
+  as a "Note:" in the report. **When analyzing an older match, the limits are the current branch's;
+  if they changed since, say so.**
+- **Power distribution channel names** come from the table in `docs/ROBOT_OVERVIEW.md`.
 Times are seconds since the log started (the report prints `t=12.34s [teleop]`). Tell the user these
 times so they can scrub to them in AdvantageScope.
 
@@ -58,6 +75,18 @@ session: it maps every log key to the code that writes it and lists this codebas
 3. Flag gaps: a match with no DS log ("-"), DS-only sessions in `_ds_only/` (robot code not
    running or the stick not in), or no robot logs at all (stick was not in the roboRIO).
 4. Offer to diagnose the worst issue. For a single match, continue with Report on its folder.
+
+## Test (simulator log, no robot)
+
+1. If the user hasn't made a sim log yet, walk them through "Test it with the simulator" in
+   `docs/LOG_ANALYSIS_WITH_CLAUDE.md` (they need to enable the robot; the real FRC Driver Station
+   with the DS Socket extension is needed only to test DS log pairing).
+2. Run `analyze.py simtest` (newest log in `logs/`) or `simtest PATH`. It writes into
+   `logs/simtest/` only.
+3. Report the checklist. Explain any `----` line: no enabled time (they didn't enable), no DS
+   log (DS app not used, or used more than a day ago), Constants notes (a renamed constant),
+   no mechanisms (the log isn't from this robot code). Sim battery/current/temperature values are
+   fake, so don't present electrical or mechanical findings from it as real.
 
 ## Step 0: get the right log
 
@@ -137,8 +166,9 @@ user explicitly chooses that, knowing the trade-off.
    The finding should move to "Fixed by the code change" with nothing new and unexpected. Replay
    does **not** re-simulate physics (positions and speeds are the recorded ones), so it can't prove
    a gain or mechanical change works. Say that, and say what to watch for on the robot.
-5. **Keep the profile true.** If you changed a key name, tolerance, current limit, soft limit, or
-   file location, update `scripts/robot_profile.py` in the same change and run
+5. **Keep the conventions.** The analyzer finds mechanisms and limits by the naming above. If a
+   change adds a mechanism or renames a logged key, config, or tolerance, keep it on the pattern
+   (or update `scripts/robot_model.py` in the same change), then run
    `python .claude/skills/analyze-wpilog/scripts/test_analyze.py`.
 6. **Commit on a branch, not main**, with a message that names the log and finding. Don't push or
    open a PR unless asked.

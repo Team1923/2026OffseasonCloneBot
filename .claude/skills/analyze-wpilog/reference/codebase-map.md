@@ -4,7 +4,8 @@ The full rules are in `docs/CODEBASE_ARCHITECTURE_PLAYBOOK.md` (read it before a
 the robot in `docs/ROBOT_OVERVIEW.md`, and logging/replay in `docs/SIMULATION_AND_LOGGING.md`. This
 page is the short version, plus the link from each log key to the code that writes it.
 
-If anything here disagrees with the code, the code wins: fix this page and `scripts/robot_profile.py`.
+If anything here disagrees with the code, the code wins: fix this page. (The analyzer itself reads
+mechanisms from the log and limits from `Constants.java`, so it can't drift.)
 
 ## How a mechanism is controlled (and where it shows up in the log)
 
