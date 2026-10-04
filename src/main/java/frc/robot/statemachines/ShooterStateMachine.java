@@ -4,8 +4,10 @@
 
 package frc.robot.statemachines;
 
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.wpilibj2.command.Command;
+import frc.robot.Constants.ShooterConstants;
 import frc.robot.StateHandler;
 import frc.robot.subsystems.shooter.ShooterSubsystem;
 import frc.robot.subsystems.shooter.ShooterSubsystem.ShooterDrumState;
@@ -31,7 +33,13 @@ public final class ShooterStateMachine extends Command {
     ShooterDrumState desiredShooterDrumState = stateHandler.desiredShooterDrumState;
 
     if (desiredShooterHoodState == ShooterHoodState.SHOOTING) {
-      double hoodAngleDegrees = vision.getHoodAngle();
+      // Keep the target reachable: past a soft limit the hood stops short and readyToShoot never
+      // turns true, so feeding would stall.
+      double hoodAngleDegrees =
+          MathUtil.clamp(
+              vision.getHoodAngle(),
+              ShooterConstants.HOOD_MIN_DEGREES,
+              ShooterConstants.HOOD_MAX_DEGREES);
       ShooterHoodState.SHOOTING.request.Position =
           Units.degreesToRotations(hoodAngleDegrees);
     }
