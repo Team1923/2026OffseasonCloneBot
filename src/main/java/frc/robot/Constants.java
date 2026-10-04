@@ -91,10 +91,15 @@ public final class Constants {
     // TODO: confirm the arm moves positive when deploying before enabling.
     public static final double ARM_MIN_DEGREES = 0.0;
     public static final double ARM_MAX_DEGREES = 120.0;
-    // Arm_Cosine scales kG by cos(position + offset), so kG is only right if (position + offset)
-    // is 0 when the arm is level. Set this to the arm's angle above level when it reads 0 (stowed),
-    // e.g. 85 if stowed is 85 degrees above level. Phoenix allows -90 to 90. TODO: measure.
-    public static final double ARM_GRAVITY_OFFSET_DEGREES = 0.0;
+    // Arm angle (from the stowed zero) where the arm is parallel to the ground, sticking out.
+    public static final double ARM_LEVEL_DEGREES = 120.0;
+    // Arm_Cosine applies kG * cos(position + offset), and Phoenix only accepts offsets of -90 to 90.
+    // Holding torque here is -kG * cos(position - level): the minus is because positive (deploying)
+    // LOWERS the arm once it is past vertical. Since cos(x - 180) = -cos(x), that equals
+    // kG * cos(position + (180 - level)), so the offset is 180 - level with kG kept positive.
+    // At 120: offset 60, vertical at 30 degrees gets no kG, and stowed (0, leaning back) is pushed
+    // toward deploying. Valid for a level angle between 90 and 270 degrees.
+    public static final double ARM_GRAVITY_OFFSET_DEGREES = 180.0 - ARM_LEVEL_DEGREES;
     public static final double ARM_POSITION_TOLERANCE_DEGREES = 3.0;
     public static final double ARM_ZERO_OFFSET_DEGREES = 0.0; // TODO: calibrate
 
@@ -113,7 +118,7 @@ public final class Constants {
                     .withMotionMagicJerk(0))
             // Starting points only, all assume ARM_GEAR_RATIO. Tune on the robot in this order:
             // kG (holds the arm level), kS, then kP. kP 144 = 4 V at 10 degrees of error.
-            // kG is only correct once ARM_GRAVITY_OFFSET_DEGREES is measured (see above).
+            // kG uses ARM_GRAVITY_OFFSET_DEGREES (see above): tune it with the arm held level.
             // TODO: measure all four.
             .withSlot0(
                 new Slot0Configs()
