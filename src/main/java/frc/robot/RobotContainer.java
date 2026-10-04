@@ -86,6 +86,7 @@ public class RobotContainer {
     operatorController.circle().onTrue(stateHandler.setScoringMode(ScoringMode.RANGED));
     operatorController.triangle().onTrue(stateHandler.setScoringMode(ScoringMode.FERRY));
     operatorController.options().onTrue(intakeSubsystem.stowCommand());
+    operatorController.square().onTrue(shooterSubsystem.homeHoodCommand());
   }
 
   /**

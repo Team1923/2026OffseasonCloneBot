@@ -34,9 +34,9 @@ public final class RollersSubsystem extends SubsystemBase {
 
   public enum RollerFloorState {
     REST(rpmRequest(0)),
-    INTAKE(rpmRequest(0)), // TODO: measure and tune all these values
-    FEED(rpmRequest(0)), 
-    EJECT(rpmRequest(0));
+    INTAKE(rpmRequest(0)), // TODO: measure and tune all these values, try ~800 RPM
+    FEED(rpmRequest(0)), // TODO: try ~1200 RPM, must outpace what the drum consumes
+    EJECT(rpmRequest(0)); // TODO: try ~-1000 RPM
 
     public final VelocityVoltage request;
 
