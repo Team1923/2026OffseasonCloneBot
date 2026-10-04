@@ -9,6 +9,8 @@ Commands (run with --help on any of them for options):
   timeline LOG               mode changes, state transitions, commands, alerts, faults
   series LOG KEY [KEY ...]   print values of keys over time (sample-and-hold)
   compare SIMLOG             replay log: findings fixed/added by a code change
+  ingest [USB] [--report]    copy logs off the robot USB stick, pair DS logs, write reports
+  ds DSLOG                   summarize a Driver Station log on its own
 
 Times are seconds since the log started. Pure Python 3.8+, no packages needed.
 """
@@ -18,7 +20,10 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import platform
+import shutil
 import statistics
+import string
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import robot_profile as P  # noqa: E402
+from dslog import read_dslog, read_dsevents  # noqa: E402
 from wpilog import Series, WpiLog, pose2d_tuple  # noqa: E402
 
 DT = 0.02  # analysis grid, matches the 20 ms robot loop
@@ -50,7 +56,8 @@ class Finding:
 class Log:
     """WpiLog plus the robot-mode timeline and key fallbacks used by every analysis."""
 
-    def __init__(self, path: str, outputs: str = "auto"):
+    def __init__(self, path: str, outputs: str = "auto", ds_path: str | None = None):
+        """ds_path: a .dslog to pair with, None to find one automatically, or "none" to skip."""
         self.path = path
         self.raw = WpiLog.open(path)
         self._cache: dict[str, Series | None] = {}
@@ -75,6 +82,43 @@ class Log:
         self.auto = self.get(*P.DS_AUTO)
         self.test = self.get(*P.DS_TEST)
         self.grid = grid_for(self.enabled_intervals)
+        self.ds = self.ds_events = None
+        self.ds_note = ""
+        if ds_path != "none":
+            self._attach_ds(ds_path)
+
+    def _attach_ds(self, ds_path: str | None):
+        """Finds the Driver Station log for this match (same folder or a dslogs/ folder next to it)
+        and lines its clock up with this log's."""
+        self.epoch0 = akit_epoch_offset(self.raw)
+        here = Path(self.path).resolve().parent
+        if ds_path:
+            candidates = [Path(ds_path)]
+        else:
+            candidates = [p for d in (here, here / "dslogs", here.parent / "dslogs") if d.is_dir()
+                          for p in d.glob("*.dslog")]
+        if not candidates:
+            return
+        if self.epoch0 is None:
+            self.ds_note = "DS logs found, but this log has no valid clock to line them up with."
+            return
+        match = best_ds_match(self.epoch0, self.epoch0 + self.end, candidates)
+        if match is None:
+            self.ds_note = "No DS log overlaps this log's time range."
+            return
+        self.ds = read_dslog(match)
+        events = match.with_suffix(".dsevents")
+        if events.is_file():
+            try:
+                self.ds_events = read_dsevents(events)
+            except ValueError:
+                pass
+        self.ds_note = f"Driver Station log: {match.name}"
+
+    def ds_to_log_time(self, ds_t: float, start_unix: float | None = None) -> float:
+        """Converts a time in a DS file (seconds since it started) to this log's time."""
+        base = self.ds.start_unix if start_unix is None else start_unix
+        return base + ds_t - self.epoch0
 
     def resolve(self, key: str) -> str | None:
         """Profile keys say RealOutputs/; map them to the chosen outputs tree."""
@@ -138,17 +182,28 @@ def intervals_where(series: Series, predicate, end: float) -> list[tuple[float, 
     return [(a, b) for a, b in out if b > a]
 
 
-def intersect(a: list, b: list) -> list:
-    out, i, j = [], 0, 0
-    while i < len(a) and j < len(b):
-        lo, hi = max(a[i][0], b[j][0]), min(a[i][1], b[j][1])
-        if hi > lo:
-            out.append((lo, hi))
-        if a[i][1] < b[j][1]:
-            i += 1
-        else:
-            j += 1
-    return out
+def akit_epoch_offset(raw: WpiLog) -> float | None:
+    """Unix time of the log's t=0, from SystemStats/EpochTimeMicros (valid once the DS sets the
+    roboRIO clock). None if the log never had a valid clock."""
+    s = raw.series("SystemStats/EpochTimeMicros")
+    if s is None:
+        return None
+    offsets = [v / 1e6 - t for t, v in zip(s.times, s.values) if isinstance(v, int) and v > 1.5e15]
+    return statistics.median(offsets) if offsets else None
+
+
+def best_ds_match(akit_start: float, akit_end: float, candidates: list[Path]) -> Path | None:
+    """The .dslog overlapping [akit_start, akit_end] (unix seconds) the most, or None."""
+    best, best_overlap = None, 0.0
+    for p in candidates:
+        try:
+            ds = read_dslog(p)
+        except (ValueError, OSError):
+            continue
+        overlap = min(akit_end, ds.end_unix) - max(akit_start, ds.start_unix)
+        if overlap > best_overlap:
+            best, best_overlap = p, overlap
+    return best
 
 
 def grid_for(intervals: list) -> list[float]:
@@ -655,6 +710,130 @@ def analyze_electrical(log: Log) -> tuple[dict, list[Finding]]:
     return ev, f
 
 
+# Routine DS event messages that carry no diagnostic value.
+_DS_EVENT_NOISE = ("Info roboRIO: Disk Free", "Info Joystick", "-- FRC Driver Station", "FMS Connected:")
+
+
+def ds_event_kind(text: str) -> str | None:
+    """Classifies a DS event message; None for routine noise."""
+    low = text.lower()
+    if any(text.startswith(n) for n in _DS_EVENT_NOISE):
+        return None
+    if "lost communication" in low or "no robot communication" in low:
+        return "comms"
+    if "brownout" in low or "voltage" in low:
+        return "power"
+    if "not keeping up" in low or "ds laptop" in low:
+        return "laptop"
+    if "joystick" in low and ("unplugged" in low or "disconnected" in low or "lost" in low):
+        return "joystick"
+    if "watchdog" in low or "loop time" in low or "overrun" in low:
+        return "code"
+    if "no robot code" in low or "code start" in low or "robot code" in low:
+        return "code"
+    if "error" in low or "exception" in low or "warning" in low:
+        return "error"
+    return "info"
+
+
+def analyze_ds(log: Log) -> tuple[dict, list[Finding]]:
+    """Driver Station side of the match: radio link, DS-reported power, PD channel currents."""
+    ev, f = {"note": log.ds_note}, []
+    ds = log.ds
+    if ds is None:
+        return ev, f
+    lo, hi = 0.0, log.end
+    idx = [i for i, t in enumerate(ds.times) if lo <= log.ds_to_log_time(t) <= hi]
+    en = [i for i in idx if ds.enabled(i)]
+    ev["enabled_seconds"] = len(en) * DT
+    if en:
+        trips = sorted(ds.trip_ms[i] for i in en)
+        losses = [ds.packet_loss[i] for i in en]
+        ev["trip_median_ms"] = statistics.median(trips)
+        ev["trip_p95_ms"] = trips[int(0.95 * (len(trips) - 1))]
+        ev["loss_mean"] = statistics.fmean(losses)
+        ev["loss_max"] = max(losses)
+        ev["wifi_db_mean"] = statistics.fmean(ds.wifi_db[i] for i in en)
+        ev["bandwidth_max_mb"] = max(ds.wifi_mb[i] for i in en)
+        ev["ds_battery_min"] = min(ds.battery[i] for i in en)
+        times = [log.ds_to_log_time(ds.times[i]) for i in en]
+        lossy = runs(times, [ds.packet_loss[i] >= 0.2 for i in en], 1.0)
+        slow = runs(times, [ds.trip_ms[i] >= 50 for i in en], 1.0)
+        if lossy:
+            f.append(Finding("WARN", "Electrical", "Radio link",
+                             f"packet loss at or above 20% for {total(lossy):.1f}s: radio placement/power, "
+                             "ethernet to the radio, or field interference.", lossy[0][0]))
+        if slow:
+            f.append(Finding("WARN", "Electrical", "Radio link",
+                             f"round-trip time at or above 50 ms for {total(slow):.1f}s (driving feels laggy).",
+                             slow[0][0]))
+        dog = runs(times, [ds.watchdog[i] for i in en], 0.1)
+        if dog:
+            f.append(Finding("WARN", "Programming", "Robot code",
+                             f"motor safety watchdog tripped {len(dog)}x ({total(dog):.1f}s) while enabled: "
+                             "loop overruns or a blocking call.", dog[0][0]))
+    # Lost comms: the robot stops answering after it had been talking to the DS.
+    first_conn = next((i for i in idx if ds.connected[i]), None)
+    if first_conn is not None:
+        times = [log.ds_to_log_time(ds.times[i]) for i in idx]
+        drops = [r for r in runs(times, [not ds.connected[i] for i in idx], 0.1)
+                 if r[0] > log.ds_to_log_time(ds.times[first_conn])]
+        ev["comms_drops"] = drops
+    # Power distribution channels.
+    if ds.pd_type != "none" and en:
+        nch = max(len(ds.pd_currents[i]) for i in en)
+        peaks, means = [], []
+        for ch in range(nch):
+            vals = [ds.pd_currents[i][ch] for i in en if ch < len(ds.pd_currents[i])]
+            peaks.append(max(vals, default=0.0))
+            means.append(statistics.fmean(vals) if vals else 0.0)
+        ev["pd_type"] = ds.pd_type
+        ev["pd_channels"] = [(ch, P.PD_CHANNELS.get(ch, ""), peaks[ch], means[ch]) for ch in range(nch)]
+        totals = [sum(ds.pd_currents[i]) for i in en]
+        ev["pd_total_peak"] = max(totals)
+        ev["pd_total_mean"] = statistics.fmean(totals)
+    # DS event messages, on this log's clock.
+    ev["events"] = []
+    if log.ds_events is not None:
+        prev = None
+        for t, text in log.ds_events.events:
+            kind = ds_event_kind(text)
+            lt = log.ds_to_log_time(t, log.ds_events.start_unix)
+            if kind is None or text == prev or not (lo <= lt <= hi):
+                continue
+            prev = text
+            ev["events"].append((lt, kind, text))
+        for lt, kind, text in ev["events"]:
+            if kind == "comms":
+                ev.setdefault("comms_lost_messages", []).append(lt)
+            if kind == "joystick":
+                f.append(Finding("WARN", "Field/DS", "Driver Station",
+                                 f"controller problem: {text[:120]}", lt))
+            elif kind == "laptop" and "not keeping up" in text.lower():
+                f.append(Finding("INFO", "Field/DS", "Driver Station laptop",
+                                 "DS laptop not keeping up (CPU/power plan); can cause lag.", lt))
+        # Only report one "laptop" finding.
+        seen, kept = False, []
+        for x in f:
+            if x.area == "Driver Station laptop":
+                if seen:
+                    continue
+                seen = True
+            kept.append(x)
+        f = kept
+    # Comms losses: short ones often only show up as the DS's "lost communication" message, not in
+    # the 20 ms cycle data, so count both and merge anything within 3 s of each other.
+    losses = sorted([a for a, _ in ev.get("comms_drops", [])] + ev.get("comms_lost_messages", []))
+    merged = [t for k, t in enumerate(losses) if k == 0 or t - losses[k - 1] > 3.0]
+    ev["comms_losses"] = merged
+    if merged:
+        f.append(Finding("CRITICAL", "Electrical", "Radio link",
+                         f"Driver Station lost communication with the robot {len(merged)}x (at "
+                         + ", ".join(f"{t:.1f}s" for t in merged[:6]) + "): radio power/brownout, "
+                         "loose ethernet at the radio or roboRIO, or a roboRIO/code restart.", merged[0]))
+    return ev, f
+
+
 def analyze_swerve(log: Log) -> tuple[dict, list[Finding]]:
     s, ev, f = P.SWERVE, {}, []
     g = log.grid
@@ -792,7 +971,7 @@ def run_all(log: Log):
         findings += f
     for key, fn in [("electrical", analyze_electrical), ("shooting", analyze_shooting),
                     ("swerve", analyze_swerve), ("vision", analyze_vision),
-                    ("alerts", analyze_alerts_and_console)]:
+                    ("alerts", analyze_alerts_and_console), ("ds", analyze_ds)]:
         ev, f = fn(log)
         results[key] = ev
         findings += f
@@ -847,7 +1026,7 @@ def match_header(log: Log) -> list[str]:
 
 
 def cmd_report(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     results, findings = run_all(log)
     out = [f"# Robot log report: {Path(args.log).name}", ""]
     out += match_header(log)
@@ -913,6 +1092,35 @@ def cmd_report(args):
         lng = f"{longest[1] - longest[0]:.1f}s at {longest[0]:.1f}s" if longest else "-"
         out.append(f"| {name} | {changes} | {mism:.1f} | {lng} |")
 
+    d = results["ds"]
+    out += ["", "## Driver Station", ""]
+    if log.ds is None:
+        out.append("- " + (d.get("note") or "No DS log next to this log (see the match log workflow)."))
+    else:
+        out.append(f"- {d['note']}; enabled per DS {fmt(d.get('enabled_seconds'))}s")
+        if "trip_median_ms" in d:
+            out.append(f"- Round trip: median {fmt(d['trip_median_ms'])} ms, 95% {fmt(d['trip_p95_ms'])} ms; "
+                       f"packet loss mean {fmt(d['loss_mean'] * 100)}%, max {fmt(d['loss_max'] * 100)}%")
+            out.append(f"- Wi-Fi {fmt(d['wifi_db_mean'])} dB mean, bandwidth peak {fmt(d['bandwidth_max_mb'], 2)} Mb/s; "
+                       f"DS-reported battery min {fmt(d['ds_battery_min'], 2)} V")
+        losses = d.get("comms_losses", [])
+        out.append(f"- Comms losses: {len(losses)}" + (" (at " + ", ".join(f"{t:.1f}s" for t in losses[:8]) + ")" if losses else ""))
+        if d.get("pd_channels"):
+            top = [c for c in sorted(d["pd_channels"], key=lambda c: -c[2]) if c[2] >= 0.5][:8]
+            out.append(f"- Power distribution ({d['pd_type']}): total peak {fmt(d['pd_total_peak'])} A, mean "
+                       f"{fmt(d['pd_total_mean'])} A while enabled. Highest channels:")
+            out.append("")
+            out.append("| Channel | Device | Peak A | Mean A |")
+            out.append("|---|---|---|---|")
+            for ch, name, peak, mean in top:
+                out.append(f"| {ch} | {name or '(unmapped)'} | {peak:.1f} | {mean:.1f} |")
+            out.append("")
+        notable = [e for e in d.get("events", []) if e[1] != "info"]
+        if notable:
+            out.append("- DS messages:")
+            for t, kind, text in notable[:25]:
+                out.append(f"  - {t:.1f}s [{kind}] {text[:160]}")
+
     sw = results["swerve"]
     out += ["", "## Swerve", ""]
     if sw.get("drive_mean_stator"):
@@ -963,7 +1171,7 @@ CAUSE_FILES = {
 
 
 def cmd_diagnose(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     names = [args.mech] if args.mech else list(P.MECHANISMS)
     for n in names:
         if n not in P.MECHANISMS:
@@ -973,6 +1181,7 @@ def cmd_diagnose(args):
         sys.exit("No enabled time in that window. (Use timeline to find when the robot was enabled.)")
     win = f"{grid[0]:.1f}s-{grid[-1]:.1f}s" if (args.start is not None or args.end is not None) else "all enabled time"
     e_ev, e_f = analyze_electrical(log)
+    e_f += analyze_ds(log)[1]
     e_f = [x for x in e_f if x.time is None or grid[0] <= x.time <= grid[-1]]
 
     for name in names:
@@ -1026,7 +1235,7 @@ def cmd_diagnose(args):
         if ev["disconnects"]:
             add("Electrical", 5, "controller dropped off CAN during the window")
         for area, pts, why in [("Battery", 3, "battery sag"), ("roboRIO", 3, "brownout"),
-                               ("CAN bus", 2, "CAN bus errors")]:
+                               ("CAN bus", 2, "CAN bus errors"), ("Radio link", 3, "radio/DS link trouble")]:
             hits = [x for x in e_f if x.area == area]
             if any(near(x.time) for x in hits):
                 add("Electrical", pts, f"{why} when the problem started")
@@ -1135,7 +1344,7 @@ def cmd_compare(args):
 
 
 def cmd_timeline(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     events = []
     for key, label in [(P.DS_ENABLED[0], "Enabled"), (P.DS_AUTO[0], "Autonomous")]:
         s = log.get(key)
@@ -1177,6 +1386,11 @@ def cmd_timeline(args):
     if bo is not None:
         for a, b in intervals_where(bo, bool, log.end):
             events.append((a, "fault", f"BROWNOUT for {b - a:.2f}s"))
+    ds_ev, _ = analyze_ds(log)
+    for t, kind, text in ds_ev.get("events", []):
+        events.append((t, "ds", f"[{kind}] {text[:200]}"))
+    for a, b in ds_ev.get("comms_drops", []):
+        events.append((a, "fault", f"DS lost comms for {b - a:.2f}s"))
     events.sort(key=lambda e: e[0])
     kinds = set(args.only.split(",")) if args.only else None
     for t, kind, text in events:
@@ -1192,7 +1406,7 @@ def cmd_timeline(args):
 
 
 def cmd_series(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     series = []
     for key in args.keys:
         s = log.get(key)
@@ -1225,7 +1439,7 @@ def cmd_series(args):
 
 
 def cmd_info(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     print(f"# {Path(args.log).name}")
     print("\n".join(match_header(log)))
     print(f"- Enabled periods: " + ", ".join(f"{a:.1f}-{b:.1f}s" for a, b in log.enabled_intervals))
@@ -1258,12 +1472,179 @@ def cmd_find(args):
         print("No .wpilog files found in: " + ", ".join(str(r) for r in roots))
 
 
+def cmd_ds(args):
+    """Summary of a DS log on its own (no AdvantageKit log needed)."""
+    import datetime
+    ds = read_dslog(args.dslog)
+    start = datetime.datetime.fromtimestamp(ds.start_unix).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"# {Path(args.dslog).name}")
+    print()
+    print(f"- Started {start} (this computer's time zone), {ds.duration:.0f}s long")
+    modes: dict[str, float] = {}
+    for i in range(len(ds.times)):
+        modes[ds.mode(i)] = modes.get(ds.mode(i), 0.0) + DT
+    print("- Time by mode: " + ", ".join(f"{k} {v:.0f}s" for k, v in modes.items()))
+    en = [i for i in range(len(ds.times)) if ds.enabled(i)]
+    if en:
+        print(f"- While enabled: trip median {statistics.median(ds.trip_ms[i] for i in en):.1f} ms, "
+              f"packet loss max {max(ds.packet_loss[i] for i in en) * 100:.0f}%, battery min "
+              f"{min(ds.battery[i] for i in en):.2f} V, brownout cycles {sum(ds.brownout[i] for i in en)}, "
+              f"watchdog cycles {sum(ds.watchdog[i] for i in en)}")
+    first = next((i for i, c in enumerate(ds.connected) if c), None)
+    if first is not None:
+        drops = [r for r in runs(ds.times, [not c for c in ds.connected], 0.1) if r[0] > ds.times[first]]
+        print(f"- No-reply periods after first connecting: {len(drops)}"
+              + (" (" + ", ".join(f"{a:.1f}-{b:.1f}s" for a, b in drops[:8]) + ")" if drops else ""))
+    ev_path = Path(args.dslog).with_suffix(".dsevents")
+    if ev_path.is_file():
+        evs = read_dsevents(ev_path)
+        print()
+        print("Messages (routine ones hidden):")
+        prev = None
+        for t, text in evs.events:
+            kind = ds_event_kind(text)
+            if kind is None or text == prev:
+                continue
+            prev = text
+            print(f"  {t:8.1f}s [{kind}] {text[:180]}")
+
+
+def find_usb_roots() -> list[Path]:
+    """Mounted drives that look like the robot's log stick (a logs/ or dslogs/ folder at the root)."""
+    if platform.system() == "Windows":
+        roots = [Path(f"{letter}:/") for letter in string.ascii_uppercase[3:]]  # D: and up
+    elif platform.system() == "Darwin":
+        roots = list(Path("/Volumes").glob("*"))
+    else:
+        roots = list(Path("/media").glob("*/*")) + list(Path("/run/media").glob("*/*"))
+    found = []
+    for r in roots:
+        try:
+            if (r / "logs").is_dir() or (r / "dslogs").is_dir():
+                found.append(r)
+        except OSError:
+            continue  # empty card reader, locked drive
+    return found
+
+
+def _copy_if_new(src: Path, dest: Path) -> bool:
+    """Copies src to dest unless an identical-size copy is already there. Returns True if copied."""
+    if dest.exists() and dest.stat().st_size == src.stat().st_size:
+        return False
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    return True
+
+
+def cmd_ingest(args):
+    if args.usb:
+        usb = Path(args.usb)
+    else:
+        roots = find_usb_roots()
+        if not roots:
+            sys.exit("No log stick found (looked for a drive with a logs/ or dslogs/ folder). "
+                     "Plug it in or pass its path, e.g. ingest E:/")
+        if len(roots) > 1:
+            sys.exit("Several possible log sticks: " + ", ".join(map(str, roots)) + ". Pass one.")
+        usb = roots[0]
+    dest = Path(args.dest) if args.dest else REPO_ROOT / "logs" / "matches"
+    akit = sorted(p for p in (usb / "logs").glob("*.wpilog") if not p.stem.endswith("_sim")) \
+        if (usb / "logs").is_dir() else []
+    ds_dir = usb / "dslogs"
+    dslogs = sorted(ds_dir.glob("*.dslog")) if ds_dir.is_dir() else []
+    print(f"Stick {usb}: {len(akit)} AdvantageKit logs, {len(dslogs)} DS logs -> {dest}")
+
+    # Time window of every DS log, read once.
+    ds_windows = []
+    for p in dslogs:
+        try:
+            d = read_dslog(p)
+            ds_windows.append((p, d.start_unix, d.end_unix))
+        except (ValueError, OSError) as e:
+            print(f"  skipping unreadable DS log {p.name}: {e}")
+    used_ds: set = set()
+    rows, new_logs = [], []
+    for p in akit:
+        try:
+            raw = WpiLog.open(p)
+        except (ValueError, OSError) as e:
+            print(f"  skipping unreadable {p.name}: {e}")
+            continue
+        folder = dest / p.stem
+        copied = _copy_if_new(p, folder / p.name)
+        enabled = raw.series("DriverStation/Enabled")
+        en_s = sum(b - a for a, b in intervals_where(enabled, bool, raw.duration)) if enabled else 0.0
+        epoch0 = akit_epoch_offset(raw)
+        paired = None
+        if epoch0 is not None:
+            best = 0.0
+            for dp, a, b in ds_windows:
+                overlap = min(epoch0 + raw.duration, b) - max(epoch0, a)
+                if overlap > best:
+                    best, paired = overlap, dp
+        if paired is not None:
+            used_ds.add(paired)
+            copied |= _copy_if_new(paired, folder / paired.name)
+            ev = paired.with_suffix(".dsevents")
+            if ev.is_file():
+                _copy_if_new(ev, folder / ev.name)
+        rows.append((p.stem, raw.duration, en_s, paired.name if paired else "-", copied))
+        if copied:
+            new_logs.append((folder / p.name, en_s))
+    # DS logs with no AdvantageKit log (robot code not running, stick out, etc.) are kept too.
+    for dp, _, _ in ds_windows:
+        if dp not in used_ds:
+            _copy_if_new(dp, dest / "_ds_only" / dp.name)
+            ev = dp.with_suffix(".dsevents")
+            if ev.is_file():
+                _copy_if_new(ev, dest / "_ds_only" / ev.name)
+
+    print("\n| Log | Length s | Enabled s | DS log | New |\n|---|---|---|---|---|")
+    for name, dur, en_s, ds_name, copied in rows:
+        print(f"| {name} | {dur:.0f} | {en_s:.0f} | {ds_name} | {'yes' if copied else ''} |")
+
+    if args.report:
+        todo = [(lp, en) for lp, en in new_logs if en >= args.min_enabled] if not args.all_reports else \
+            [(dest / r[0] / f"{r[0]}.wpilog", r[2]) for r in rows if r[2] >= args.min_enabled]
+        for lp, _ in todo:
+            out = lp.with_name("report.md")
+            cmd_report(argparse.Namespace(log=str(lp), out=str(out), outputs="auto", ds=None))
+        skipped = len([1 for _, en in new_logs if en < args.min_enabled])
+        if skipped:
+            print(f"(No report for {skipped} new log(s) with under {args.min_enabled:.0f}s enabled: "
+                  "pit restarts and code redeploys.)")
+        write_index(dest)
+
+
+def write_index(dest: Path):
+    """INDEX.md: one row per ingested match with its finding counts, newest first."""
+    rows = []
+    for folder in sorted((d for d in dest.iterdir() if d.is_dir() and not d.name.startswith("_")),
+                         reverse=True):
+        rep = folder / "report.md"
+        if not rep.is_file():
+            continue
+        text = rep.read_text(encoding="utf-8")
+        crit, warn = text.count("**CRITICAL**"), text.count("**WARN**")
+        first = next((ln[2:] for ln in text.splitlines() if ln.startswith("- **CRITICAL**")
+                      or ln.startswith("- **WARN**")), "")
+        has_ds = "Driver Station log:" in text
+        rows.append(f"| [{folder.name}]({folder.name}/report.md) | {crit} | {warn} | "
+                    f"{'yes' if has_ds else 'no'} | {first[:120]} |")
+    lines = ["# Match log index", "", "| Match | Critical | Warn | DS log | Top finding |",
+             "|---|---|---|---|---|"] + rows
+    (dest / "INDEX.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Index written to {dest / 'INDEX.md'}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def add_log(p):
         p.add_argument("log")
+        p.add_argument("--ds", help="Driver Station .dslog to pair with (default: find one next to "
+                                    "the log by time; 'none' to skip)")
         p.add_argument("--outputs", choices=["auto", "real", "replay"], default="auto",
                        help="which decisions to analyze in a replay (_sim) log: the original "
                             "robot's (real) or the current code's (replay). auto = replay if present")
@@ -1276,6 +1657,18 @@ def main(argv=None):
     p.add_argument("dirs", nargs="*", help="extra folders to search")
     p.add_argument("--limit", type=int, default=15)
     p.set_defaults(fn=cmd_find)
+
+    p = sub.add_parser("ingest", help="copy logs off the robot's USB stick, pair DS logs, write reports")
+    p.add_argument("usb", nargs="?", help="stick path, e.g. E:/ (default: find it)")
+    p.add_argument("--dest", help="where to put matches (default: <repo>/logs/matches)")
+    p.add_argument("--report", action="store_true", help="write report.md for each new match + INDEX.md")
+    p.add_argument("--all-reports", action="store_true", help="with --report: redo every match, not just new")
+    p.add_argument("--min-enabled", type=float, default=5.0, help="skip reports for logs enabled less than this (s)")
+    p.set_defaults(fn=cmd_ingest)
+
+    p = sub.add_parser("ds", help="summarize a Driver Station .dslog (+ .dsevents) on its own")
+    p.add_argument("dslog")
+    p.set_defaults(fn=cmd_ds)
 
     p = sub.add_parser("info", help="match info, enabled periods, and keys")
     add_log(p)
@@ -1296,7 +1689,7 @@ def main(argv=None):
     p = sub.add_parser("timeline", help="mode, state, command, and fault events in order")
     add_log(p)
     window(p)
-    p.add_argument("--only", help="comma list of kinds: mode,state,command,fault,event")
+    p.add_argument("--only", help="comma list of kinds: mode,state,command,fault,event,ds")
     p.add_argument("--filter", help="only events containing this text")
     p.set_defaults(fn=cmd_timeline)
 

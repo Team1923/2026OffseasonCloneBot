@@ -174,6 +174,10 @@ SWERVE = {
 
 VISION_CAMERAS = ["FrontLeft", "FrontRight", "RearLeft", "RearRight"]
 
+# Power distribution channel -> what is plugged into it, so the DS report names channels.
+# TODO: fill in from the wiring (e.g. 0: "FL drive", 10: "Drum leader"). Unlisted = "(unmapped)".
+PD_CHANNELS: dict[int, str] = {}
+
 SHOOTING = {
     "ready": "RealOutputs/Shooter/ReadyToShoot",
     # Commands that mean "the driver is trying to shoot right now".

@@ -1,15 +1,16 @@
 ---
 name: analyze-wpilog
-description: Analyze AdvantageKit .wpilog logs from the 2026 Offseason CloneBot - generate a post-match/practice health report, find the root cause of a robot problem (mechanical, electrical, or programming), and fix code problems, verifying the fix by replaying the log. Use when the user mentions a log, wpilog, match/practice log, AdvantageScope, brownout, a mechanism misbehaving on the real robot ("hood didn't move", "shooter never fed", "intake stalled"), or asks for a report, root cause, or fix based on robot data.
-argument-hint: "report [log] | diagnose <what went wrong> [log] | fix [finding]"
+description: Analyze AdvantageKit .wpilog logs (plus Driver Station .dslog/.dsevents) from the 2026 Offseason CloneBot - ingest logs from the robot's USB stick, generate a post-match/practice health report, find the root cause of a robot problem (mechanical, electrical, or programming), and fix code problems, verifying the fix by replaying the log. Use when the user mentions a log, wpilog, match/practice log, AdvantageScope, brownout, a mechanism misbehaving on the real robot ("hood didn't move", "shooter never fed", "intake stalled"), radio/comms drops, the log USB stick, or asks for a report, root cause, or fix based on robot data.
+argument-hint: "ingest | report [log] | diagnose <what went wrong> [log] | fix [finding]"
 ---
 
 # Analyze robot logs (CloneBot)
 
-Three jobs. Pick from the user's words; ask only if it is genuinely unclear.
+Four jobs. Pick from the user's words; ask only if it is genuinely unclear.
 
 | User says | Job |
 |---|---|
+| "ingest the stick", "I plugged in the USB", "how did today's matches go" | **Ingest** (then Report) |
 | "generate a report", "how did the match go", "anything wrong in this log" | **Report** |
 | "why did X happen", "analyze this issue", "is it mechanical or code" | **Diagnose** |
 | "fix it", "fix the code", or a diagnosis that ends in a Programming/Tuning cause | **Fix** |
@@ -22,14 +23,23 @@ python .claude/skills/analyze-wpilog/scripts/analyze.py <command> ...
 
 | Command | What it gives you |
 |---|---|
-| `find [dirs]` | `.wpilog` files newest first (repo `logs/`, Downloads, Documents, Desktop) |
+| `ingest [USB] [--report]` | copies logs off the robot stick into `logs/matches/<log>/`, pairs each with its DS log by clock time, writes `report.md` per new match and `logs/matches/INDEX.md` |
+| `find [dirs]` | `.wpilog` files newest first (repo `logs/` incl. `logs/matches/`, Downloads, Documents, Desktop) |
 | `info LOG [--prefix P]` | match info, enabled periods, every key with type and count |
 | `report LOG [--out FILE]` | markdown report: prioritized findings, electrical, mechanisms, shooting, states, swerve, vision, commands, alerts |
 | `diagnose LOG [MECH] [--from S --to S]` | evidence + ranked causes for one mechanism (or every mechanism with a problem) |
 | `timeline LOG [--only mode,state,command,fault,event] [--filter TEXT] [--from --to]` | what happened, in order |
 | `series LOG KEY... [--from --to] [--step 0.05]` | raw values as CSV (Pose2d prints as x y heading) |
 | `compare SIMLOG` | after a replay: findings fixed/added by the code change, setpoints and states before vs after |
+| `ds DSLOG` | a Driver Station log on its own (when there is no robot log for that match) |
 | `replay.py LOG [--no-build]` | runs the **current code** on the log's inputs, writes `LOG_sim.wpilog` |
+
+Every command that takes a robot log also pairs it with the Driver Station log recorded at the
+same time, if one is in the same folder or a `dslogs/` folder next to it (`--ds PATH` to choose,
+`--ds none` to skip). DS data adds radio link quality (packet loss, round trip, lost-comms
+events), controller unplugs, DS laptop lag, and current per power-distribution channel; DS
+messages appear in `timeline` as kind `ds`. The whole USB workflow is in
+`docs/MATCH_LOG_WORKFLOW.md`.
 
 Mechanism names for `diagnose`: `intake_arm`, `intake_roller`, `floor_roller`, `hood`, `drum`.
 Times are seconds since the log started (the report prints `t=12.34s [teleop]`). Tell the user these
@@ -38,10 +48,22 @@ times so they can scrub to them in AdvantageScope.
 Before any job, read [reference/codebase-map.md](reference/codebase-map.md) if you have not this
 session: it maps every log key to the code that writes it and lists this codebase's gotchas.
 
+## Ingest (logs from the USB stick)
+
+1. Run `analyze.py ingest --report`. It finds the stick by its `logs/` folder; if it finds none
+   or several, ask for the drive. Never delete or modify anything on the stick.
+2. Read `logs/matches/INDEX.md`. Summarize the session: one line per match with enabled time,
+   critical/warning counts, and whether a DS log was paired. Then call out problems that repeat
+   across matches (the same motor hot every match matters more than one blip).
+3. Flag gaps: a match with no DS log ("-"), DS-only sessions in `_ds_only/` (robot code not
+   running or the stick not in), or no robot logs at all (stick was not in the roboRIO).
+4. Offer to diagnose the worst issue. For a single match, continue with Report on its folder.
+
 ## Step 0: get the right log
 
-1. If the user gave a path, use it. Otherwise run `find` and pick the newest that fits what they
-   described (match number, "last night"). If several fit, list them and ask.
+1. If the user gave a path, use it. If they name a match ("q12"), look in `logs/matches/` first
+   (folder names end with the event and match). Otherwise run `find` and pick the newest that
+   fits what they described. If several fit, list them and ask.
 2. Check what kind of log it is with `info`:
    - **Real robot** (`ProjectName` metadata, real battery values, `RobotMode` REAL): everything applies.
    - **Simulation**: battery, currents, and temperatures are fake, and there is no friction or
@@ -53,7 +75,8 @@ session: it maps every log key to the code that writes it and lists this codebas
 
 ## Report
 
-1. `analyze.py report LOG --out logs/reports/<log name>.md`. The `logs/` folder is gitignored.
+1. `analyze.py report LOG --out <the log's folder>/report.md` (ingested matches already have
+   one). The `logs/` folder is gitignored.
 2. Read the report, then give the user a short summary in plain language:
    - the 3-6 findings that matter most, each with the time, what it means physically, and what to
      check. Group repeated symptoms of one cause (a brownout and the motors that dropped out right
