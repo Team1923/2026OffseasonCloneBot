@@ -91,6 +91,10 @@ public final class Constants {
     // TODO: confirm the arm moves positive when deploying before enabling.
     public static final double ARM_MIN_DEGREES = 0.0;
     public static final double ARM_MAX_DEGREES = 120.0;
+    // Arm_Cosine scales kG by cos(position + offset), so kG is only right if (position + offset)
+    // is 0 when the arm is level. Set this to the arm's angle above level when it reads 0 (stowed),
+    // e.g. 85 if stowed is 85 degrees above level. Phoenix allows -90 to 90. TODO: measure.
+    public static final double ARM_GRAVITY_OFFSET_DEGREES = 0.0;
     public static final double ARM_POSITION_TOLERANCE_DEGREES = 3.0;
     public static final double ARM_ZERO_OFFSET_DEGREES = 0.0; // TODO: calibrate
 
@@ -109,8 +113,8 @@ public final class Constants {
                     .withMotionMagicJerk(0))
             // Starting points only, all assume ARM_GEAR_RATIO. Tune on the robot in this order:
             // kG (holds the arm level), kS, then kP. kP 144 = 4 V at 10 degrees of error.
-            // kG is only correct if position 0 is horizontal, because Arm_Cosine scales it by
-            // cos(position). TODO: measure all four.
+            // kG is only correct once ARM_GRAVITY_OFFSET_DEGREES is measured (see above).
+            // TODO: measure all four.
             .withSlot0(
                 new Slot0Configs()
                     .withKP(144)
@@ -119,7 +123,9 @@ public final class Constants {
                     .withKV(0)
                     .withKS(0.2)
                     .withKG(0.4)
-                    .withGravityType(GravityTypeValue.Arm_Cosine))
+                    .withGravityType(GravityTypeValue.Arm_Cosine)
+                    .withGravityArmPositionOffset(
+                        Units.degreesToRotations(ARM_GRAVITY_OFFSET_DEGREES)))
             .withMotorOutput(
                 new MotorOutputConfigs()
                     .withNeutralMode(NeutralModeValue.Coast)
