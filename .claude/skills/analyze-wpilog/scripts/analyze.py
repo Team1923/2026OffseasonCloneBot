@@ -1697,7 +1697,7 @@ def cmd_simtest(args):
     script = REPO_ROOT / "tools" / "collect-ds-logs.sh"
     if bash and script.is_file():
         print("2. Running tools/collect-ds-logs.sh on it (as on the Driver Station laptop)")
-        r = subprocess.run([bash, str(script), str(stick), "--days", "1"], capture_output=True, text=True)
+        r = subprocess.run([bash, str(script), str(stick)], capture_output=True, text=True)
         print("   " + "\n   ".join((r.stdout + r.stderr).strip().splitlines()[:8]))
     else:
         print("2. Skipped the DS collector (no Git Bash/bash found).")

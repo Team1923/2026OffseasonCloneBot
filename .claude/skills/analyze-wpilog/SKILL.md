@@ -69,6 +69,9 @@ session: it maps every log key to the code that writes it and lists this codebas
 
 1. Run `analyze.py ingest --report`. It finds the stick by its `logs/` folder; if it finds none
    or several, ask for the drive. Never delete or modify anything on the stick.
+   The drive team's collector copies only the newest DS log by default, so for a session of
+   several matches expect earlier matches to show no DS log unless they ran it after each
+   match (or used `--last N` / `--days N`).
 2. Read `logs/matches/INDEX.md`. Summarize the session: one line per match with enabled time,
    critical/warning counts, and whether a DS log was paired. Then call out problems that repeat
    across matches (the same motor hot every match matters more than one blip).
@@ -84,7 +87,7 @@ session: it maps every log key to the code that writes it and lists this codebas
 2. Run `analyze.py simtest` (newest log in `logs/`) or `simtest PATH`. It writes into
    `logs/simtest/` only.
 3. Report the checklist. Explain any `----` line: no enabled time (they didn't enable), no DS
-   log (DS app not used, or used more than a day ago), Constants notes (a renamed constant),
+   log (DS app not used, or another DS session happened after the sim run), Constants notes (a renamed constant),
    no mechanisms (the log isn't from this robot code). Sim battery/current/temperature values are
    fake, so don't present electrical or mechanical findings from it as real.
 

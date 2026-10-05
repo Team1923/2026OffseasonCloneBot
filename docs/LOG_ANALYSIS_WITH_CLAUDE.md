@@ -16,14 +16,20 @@ to know how any of it works inside; follow the steps and ask Claude in plain Eng
 
 1. **Power the robot off**, then take the USB stick out of the roboRIO.
 2. Plug the stick into the **Driver Station laptop** and double-click **`tools\collect-ds-logs.cmd`**.
-   It adds the Driver Station's logs to the stick and tells you how many robot logs are on it.
+   It adds the most recent match's Driver Station log to the stick and tells you how many robot
+   logs are on it.
+   - Missed running it after some matches? Grab more from Git Bash:
+     `tools/collect-ds-logs.sh --last 3` (newest 3), `--days 1` (today), or `--all`.
+   - "The newest DS log started ... min away from the newest robot log": the robot was turned on
+     again after the match, so the newest DS log is a pit session. Run it with `--last 3`.
    - "Couldn't find the robot's log stick": run it from Git Bash with the drive letter:
      `tools/collect-ds-logs.sh E:`
    - "No AdvantageKit logs on this stick": the stick wasn't in the robot, or the robot code
      didn't run. The DS logs still get copied.
 3. Put the stick back in the roboRIO before the next match.
 
-You can run step 2 after every match or once at the end of the day. Running it twice is harmless.
+Run step 2 after every match (by default it only grabs the latest match). Running it twice is
+harmless.
 
 ## On the analysis computer
 
@@ -92,7 +98,7 @@ test checks that logs flow through correctly.
 
 | Problem | What to do |
 |---|---|
-| A match has no DS log in the index | The DS collector wasn't run for that match, or the robot never connected to the DS (so its clock was never set). |
+| A match has no DS log in the index | The collector wasn't run right after that match (rerun it with `--last N` or `--days 1`), or the robot never connected to the DS (so its clock was never set). |
 | The report says it couldn't find a tolerance or limit | Someone renamed something in `Constants.java`; tell Claude "the report says it couldn't find X" and it will sort it out. |
 | A new mechanism doesn't show up in reports | It needs to log like the others (a `Setpoint...` output and the usual inputs). Ask Claude: "why isn't the new mechanism in the report?" |
 | `collect-ds-logs.cmd` says Git Bash not found | Install Git for Windows. |
