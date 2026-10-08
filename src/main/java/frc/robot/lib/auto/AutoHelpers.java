@@ -50,6 +50,11 @@ public final class AutoHelpers {
     if (path == null) {
       return generateBlankCommand();
     }
+    if (!AutoBuilder.isConfigured()) {
+      DriverStation.reportError(
+          "AutoBuilder is not configured; skipping path " + path.name, false);
+      return generateBlankCommand();
+    }
 
     return AutoBuilder.followPath(path);
   }

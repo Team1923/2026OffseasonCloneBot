@@ -30,14 +30,21 @@ public final class ShooterStateMachine extends Command {
     ShooterHoodState desiredShooterHoodState = stateHandler.desiredShooterHoodState;
     ShooterDrumState desiredShooterDrumState = stateHandler.desiredShooterDrumState;
 
-    if (desiredShooterHoodState == ShooterHoodState.SHOOTING) {
-      double hoodAngleDegrees = vision.getHoodAngle();
-      ShooterHoodState.SHOOTING.request.Position =
-          Units.degreesToRotations(hoodAngleDegrees);
+    if (desiredShooterHoodState == ShooterHoodState.SHOOTING
+        || desiredShooterHoodState == ShooterHoodState.SHOOTING_ON_MOVE) {
+      double hoodAngleDegrees =
+          desiredShooterHoodState == ShooterHoodState.SHOOTING_ON_MOVE
+              ? vision.getShootOnTheMoveHoodAngle()
+              : vision.getHoodAngle();
+      desiredShooterHoodState.request.Position = Units.degreesToRotations(hoodAngleDegrees);
     }
-    if (desiredShooterDrumState == ShooterDrumState.SHOOTING) {
-      double drumRpm = vision.getRPM();
-      ShooterDrumState.SHOOTING.request.Velocity = drumRpm / 60.0;
+    if (desiredShooterDrumState == ShooterDrumState.SHOOTING
+        || desiredShooterDrumState == ShooterDrumState.SHOOTING_ON_MOVE) {
+      double drumRpm =
+          desiredShooterDrumState == ShooterDrumState.SHOOTING_ON_MOVE
+              ? vision.getShootOnTheMoveRPM()
+              : vision.getRPM();
+      desiredShooterDrumState.request.Velocity = drumRpm / 60.0;
     }
 
     shooter.applyHoodState(desiredShooterHoodState);

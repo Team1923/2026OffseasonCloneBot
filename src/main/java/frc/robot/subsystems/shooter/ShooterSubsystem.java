@@ -36,6 +36,7 @@ public final class ShooterSubsystem extends SubsystemBase {
   public enum ShooterHoodState {
     STOWED(degreesRequest(0)),
     SHOOTING(degreesRequest(0)), // TODO: replace with shot model
+    SHOOTING_ON_MOVE(degreesRequest(0)),
     FERRY(degreesRequest(0)); // TODO: tune
 
     public final PositionVoltage request;
@@ -53,6 +54,7 @@ public final class ShooterSubsystem extends SubsystemBase {
     IDLE(rpmRequest(0)),
     WARMING(rpmRequest(0)), // TODO: tune - slow velocity of wheels always running
     SHOOTING(rpmRequest(0)), // TODO: replace with shot model
+    SHOOTING_ON_MOVE(rpmRequest(0)),
     FERRY(rpmRequest(0)); // TODO: tune
 
     public final VelocityVoltage request;
@@ -135,6 +137,7 @@ public final class ShooterSubsystem extends SubsystemBase {
   public boolean readyToShoot() {
     boolean activeShot =
         stateHandler.desiredShooterDrumState == ShooterDrumState.SHOOTING
+            || stateHandler.desiredShooterDrumState == ShooterDrumState.SHOOTING_ON_MOVE
             || stateHandler.desiredShooterDrumState == ShooterDrumState.FERRY;
     boolean configuredSetpoint = stateHandler.desiredShooterDrumState.request.Velocity > 0; // don't NEED this but good safety check
     return activeShot
@@ -146,6 +149,14 @@ public final class ShooterSubsystem extends SubsystemBase {
   public Command shootCommand() {
     return requestWhileHeld(
         ShooterHoodState.SHOOTING, ShooterDrumState.SHOOTING, "ShooterShoot");
+  }
+
+  /** Requests distance tracking with shoot-on-the-move velocity compensation. */
+  public Command shootOnTheMoveCommand() {
+    return requestWhileHeld(
+        ShooterHoodState.SHOOTING_ON_MOVE,
+        ShooterDrumState.SHOOTING_ON_MOVE,
+        "ShooterShootOnTheMove");
   }
 
   public Command warmCommand() {

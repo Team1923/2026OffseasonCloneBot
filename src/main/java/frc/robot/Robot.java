@@ -32,7 +32,7 @@ public class Robot extends LoggedRobot {
    */
   public Robot() {
     // AdvantageKit must be started before any subsystem or IO is constructed. On the desktop this
-    // waits for Start in SmartDashboard > Robot Startup (simulate or replay, and where to log).
+    // starts normal simulation immediately unless replay settings were supplied externally.
     stateHandler.robotMode = LoggingStartup.start(this);
 
     // Log running commands so logs identify the active actions
@@ -78,7 +78,9 @@ public class Robot extends LoggedRobot {
   public void disabledInit() {}
 
   @Override
-  public void disabledPeriodic() {}
+  public void disabledPeriodic() {
+    m_robotContainer.updateAutonomousCommand();
+  }
 
   /** This autonomous runs the autonomous command selected by your {@link RobotContainer} class. */
   @Override

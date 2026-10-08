@@ -4,24 +4,23 @@
 
 package frc.robot.commands.autos;
 
-import edu.wpi.first.wpilibj2.command.ParallelDeadlineGroup;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
-import edu.wpi.first.wpilibj2.command.WaitCommand;
 import frc.robot.lib.auto.AutoHelpers;
 
 /**
- * Left-side, two-game-piece auto: drives from the trench to the left shot, then runs the
- * second-pass path back out to the trench and back to the same shooting spot. Built from
- * {@code L_TrenchToL_Shoot.traj} and {@code L_Shoot2ndPass.traj} in deploy/choreo.
+ * Left-side path sequence. Scoring actions will be added when the autonomous command logic is
+ * implemented.
  */
 public class LDoubleNZ extends SequentialCommandGroup {
   public LDoubleNZ() {
     addCommands(
-        AutoHelpers.commandPathFromCatchesErrors(AutoHelpers.choreoToPathPlannerConverter("L_TrenchToL_Shoot")),
-        new ParallelDeadlineGroup(
-          new WaitCommand(5)
-          // new ShootCommand() 
-        ),
-        AutoHelpers.commandPathFromCatchesErrors(AutoHelpers.choreoToPathPlannerConverter("L_Shoot2ndPass")));
+        follow("SOTM_L_TrenchToL_Shoot"),
+        follow("SOTM_L_Shoot2ndPass"),
+        follow("SOTM_L_Shoot3rdPass"));
+  }
+
+  private static edu.wpi.first.wpilibj2.command.Command follow(String trajectoryName) {
+    return AutoHelpers.commandPathFromCatchesErrors(
+        AutoHelpers.choreoToPathPlannerConverter(trajectoryName));
   }
 }

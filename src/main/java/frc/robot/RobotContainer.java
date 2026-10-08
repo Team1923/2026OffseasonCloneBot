@@ -4,6 +4,7 @@
 
 package frc.robot;
 
+import com.pathplanner.lib.auto.NamedCommands;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.CommandPS5Controller;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
@@ -11,6 +12,7 @@ import edu.wpi.first.wpilibj2.command.button.Trigger;
 import frc.robot.Constants.OperatorConstants;
 import frc.robot.StateHandler.ScoringMode;
 import frc.robot.commands.RobotCommands;
+import frc.robot.lib.auto.AutoInstantiateSelector;
 import frc.robot.statemachines.IntakeStateMachine;
 import frc.robot.statemachines.RollersStateMachine;
 import frc.robot.statemachines.ShooterStateMachine;
@@ -40,8 +42,9 @@ public class RobotContainer {
   private final ShooterSubsystem shooterSubsystem = ShooterSubsystem.getInstance();
   private final InfoSubsystem infoSubsystem = new InfoSubsystem();
   private final StateHandler stateHandler = StateHandler.getInstance();
+  private final AutoInstantiateSelector autoSelector = new AutoInstantiateSelector();
 
-  /** The container for the robot. Contains subsystems, OI devices, and commands. */
+  /** The container for the robot. Contains subsystems, OI devices, commands, and bindings. */
   public RobotContainer() {
     configureBindings();
   }
@@ -56,6 +59,9 @@ public class RobotContainer {
    * joysticks}.
    */
   private void configureBindings() {
+    // Autonomous Event Bindings
+    NamedCommands.registerCommand("SOTM", RobotCommands.shootOnTheMoveCommand());
+    NamedCommands.registerCommand("SOTM_END", RobotCommands.stopShootOnTheMoveCommand());
 
     // Default Commands
     swerveSubsystem.setDefaultCommand(
@@ -94,6 +100,11 @@ public class RobotContainer {
    * @return the command to run in autonomous
    */
   public Command getAutonomousCommand() {
-    return null;
+    return autoSelector.getSelectedCommand();
+  }
+
+  /** Prepares the selected autonomous command while the robot is disabled. */
+  public void updateAutonomousCommand() {
+    autoSelector.updateSelectedCommand();
   }
 }

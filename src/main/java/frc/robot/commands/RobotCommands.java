@@ -4,8 +4,10 @@
 
 package frc.robot.commands;
 
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
+import frc.robot.StateHandler;
 import frc.robot.StateHandler.ScoringMode;
 import frc.robot.subsystems.intake.IntakeSubsystem;
 import frc.robot.subsystems.rollers.RollersSubsystem;
@@ -48,6 +50,33 @@ public final class RobotCommands {
             swerve.faceTargetCommand(() -> VisionSubsystem.getInstance().getAllianceHubPose()),
             rollers.feedWhenAllowedCommand(feedAllowed))
         .withName("ShootGamePieces");
+  }
+
+
+  public static Command shootOnTheMoveCommand() {
+    ShooterSubsystem shooter = ShooterSubsystem.getInstance();
+    RollersSubsystem rollers = RollersSubsystem.getInstance();
+    SwerveSubsystem swerve = SwerveSubsystem.getInstance();
+    VisionSubsystem vision = VisionSubsystem.getInstance();
+
+    BooleanSupplier feedAllowed =
+        () -> shooter.readyToShoot() && swerve.isRearFacing(vision.getAllianceHubPose());
+
+    StateHandler stateHandler = StateHandler.getInstance();
+
+    return Commands.parallel(
+            shooter.shootOnTheMoveCommand(), rollers.feedWhenAllowedCommand(feedAllowed))
+        .beforeStarting(() -> stateHandler.shootOnTheMoveActive = true)
+        .until(() -> !stateHandler.shootOnTheMoveActive || !DriverStation.isAutonomousEnabled())
+        .finallyDo(interrupted -> stateHandler.shootOnTheMoveActive = false)
+        .onlyIf(DriverStation::isAutonomousEnabled)
+        .withName("ShootOnTheMove");
+  }
+
+  /** Ends the SOTM window; the running SOTM command then performs its normal safe cleanup. */
+  public static Command stopShootOnTheMoveCommand() {
+    return Commands.runOnce(() -> StateHandler.getInstance().shootOnTheMoveActive = false)
+        .withName("StopShootOnTheMove");
   }
 
   /** Runs the fixed ferry shot and feeds once the shooter reaches its setpoints. */

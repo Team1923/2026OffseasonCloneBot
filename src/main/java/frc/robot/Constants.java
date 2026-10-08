@@ -47,21 +47,13 @@ public final class Constants {
     /** Added to a replayed log's filename for the recomputed output log. */
     public static final String REPLAY_OUTPUT_SUFFIX = "_sim";
 
-    /** SmartDashboard folder holding the desktop simulate/replay selector. */
-    public static final String STARTUP_DASHBOARD_TABLE = "Robot Startup";
-    /** Set by ./gradlew replayWatch to replay a log without the dashboard selector. */
+    /** Set by ./gradlew replayWatch to replay a log instead of starting simulation. */
     public static final String REPLAY_LOG_PATH_ENVIRONMENT_VARIABLE = "AKIT_LOG_PATH";
-    /** "true" to replay in real time; set when the selector relaunches the program for replay. */
+    /** Optional: "true" to replay in real time. */
     public static final String REPLAY_REAL_TIME_ENVIRONMENT_VARIABLE = "ROBOT_REPLAY_REAL_TIME";
-    /** Output log path for a relaunched replay, or {@link #REPLAY_OUTPUT_NONE}. */
+    /** Optional replay output log path, or {@link #REPLAY_OUTPUT_NONE}. */
     public static final String REPLAY_OUTPUT_ENVIRONMENT_VARIABLE = "ROBOT_REPLAY_OUTPUT";
     public static final String REPLAY_OUTPUT_NONE = "none";
-    /** Lists the loaded HAL sim extensions (Sim GUI, DS socket); replay requires it to be unset. */
-    public static final String HAL_SIM_EXTENSIONS_ENVIRONMENT_VARIABLE = "HALSIM_EXTENSIONS";
-    /** Main class started again when a replay is relaunched without sim extensions. */
-    public static final String ROBOT_MAIN_CLASS = "frc.robot.Main";
-    /** File in the system temp folder where AdvantageScope writes the path of its open log. */
-    public static final String ADVANTAGESCOPE_LOG_PATH_FILE = "akit-log-path.txt";
 
     private LoggingConstants() {}
   }
@@ -182,6 +174,21 @@ public final class Constants {
     public static final double DRUM_GEAR_RATIO = 1.0; // TODO: get from CAD
     public static final double HOOD_TOLERANCE_DEGREES = 0.5;
     public static final double DRUM_TOLERANCE_RPM = 75.0;
+
+    /** Backing speed used by the authored Choreo SOTM segments. */
+    public static final double SOTM_BACKING_SPEED = 0.40;
+    /**
+     * Maximum backing speed accepted by the SOTM feedforward. This bounds corrections if odometry
+     * reports a transient velocity spike.
+     */
+    public static final double SOTM_MAX_BACKING_SPEED_METERS_PER_SECOND = 0.50;
+    /** Added drum RPM per m/s of backing speed. TODO: characterize. */
+    public static final double SOTM_RPM_PER_METER_PER_SECOND = 0.0;
+    /**
+     * Added hood degrees per m/s of backing speed. The mechanism geometry determines the sign.
+     * TODO: characterize.
+     */
+    public static final double SOTM_HOOD_DEGREES_PER_METER_PER_SECOND = 0.0;
 
     // Simulation-only mechanism inertia. TODO: estimate from CAD
     public static final double HOOD_SIM_MOI_KG_METERS_SQUARED = 0.01;

@@ -6,17 +6,19 @@ package frc.robot.subsystems.vision;
 
 import com.ctre.phoenix6.Utils;
 
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.StateHandler;
 import frc.robot.Constants.FieldConstants;
 import frc.robot.Constants.InterpolationConstants;
 import frc.robot.Constants.LoggingConstants.Mode;
+import frc.robot.Constants.ShooterConstants;
 import frc.robot.Constants.VisionConstants;
+import frc.robot.StateHandler;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
 import org.littletonrobotics.junction.Logger;
 
@@ -89,6 +91,37 @@ public final class VisionSubsystem extends SubsystemBase {
   public double getHoodAngle() {
     Double hoodAngleDegrees = InterpolationConstants.distanceToHoodMap.get(getDistanceToHub());
     return hoodAngleDegrees == null ? 0.0 : hoodAngleDegrees;
+  }
+
+  /** Robot speed during SOTM; its direction is constrained by Choreo to be directly away from the hub. */
+  public double getBackingSpeedFromHubMetersPerSecond() {
+    return swerve.getCurrentSpeed();
+  }
+
+  /** Distance-map RPM plus a feedforward for the measured radial backing velocity. */
+  public double getShootOnTheMoveRPM() {
+    double backingSpeed = getBoundedSotmBackingSpeed();
+    double rpm = getRPM() + ShooterConstants.SOTM_RPM_PER_METER_PER_SECOND * backingSpeed;
+    Logger.recordOutput("Shooter/SOTM/BackingSpeedMetersPerSecond", backingSpeed);
+    Logger.recordOutput("Shooter/SOTM/DrumSetpointRpm", rpm);
+    return rpm;
+  }
+
+  /** Distance-map hood angle plus a feedforward for the measured radial backing velocity. */
+  public double getShootOnTheMoveHoodAngle() {
+    double backingSpeed = getBoundedSotmBackingSpeed();
+    double angle =
+        getHoodAngle()
+            + ShooterConstants.SOTM_HOOD_DEGREES_PER_METER_PER_SECOND * backingSpeed;
+    Logger.recordOutput("Shooter/SOTM/HoodSetpointDegrees", angle);
+    return angle;
+  }
+
+  private double getBoundedSotmBackingSpeed() {
+    return MathUtil.clamp(
+        getBackingSpeedFromHubMetersPerSecond(),
+        0.0,
+        ShooterConstants.SOTM_MAX_BACKING_SPEED_METERS_PER_SECOND);
   }
 
   /** Resets odometry to the most trustworthy MegaTag1 estimate from any of the four Limelights. */
