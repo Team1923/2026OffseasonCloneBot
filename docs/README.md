@@ -8,6 +8,11 @@
    implementation order, and examples.
 4. [`SIMULATION_AND_LOGGING.md`](SIMULATION_AND_LOGGING.md) — running the
    simulator, choosing simulate or replay, AdvantageScope, and robot logs.
+5. [`../.claude/skills/analyze-wpilog/SKILL.md`](../.claude/skills/analyze-wpilog/SKILL.md) —
+   the Claude Code skill for log reports, root-cause diagnosis, and log-verified
+   fixes. In Claude Code: `/analyze-wpilog report`, `/analyze-wpilog diagnose
+   <what went wrong>`, `/analyze-wpilog fix`. The scripts also run on their own:
+   `python .claude/skills/analyze-wpilog/scripts/analyze.py --help`.
 
 When the documents disagree, use `ROBOT_OVERVIEW.md` for the physical design,
 the architecture playbook for ownership and organization, and the current code
