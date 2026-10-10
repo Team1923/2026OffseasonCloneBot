@@ -180,15 +180,20 @@ public final class ShooterSubsystem extends SubsystemBase {
         .andThen(
             run(() -> io.setHoodControl(homingRequest))
                 .until(
-                    () ->
-                        // Ignore "stopped" until the hood has had time to start moving, otherwise
-                        // it finishes immediately against its own standstill.
-                        foundHardStop[0] =
-                            timer.hasElapsed(ShooterConstants.HOOD_HOMING_MIN_MOVE_SECONDS)
-                                && stopped.calculate(
-                                    Math.abs(inputs.hoodVelocityDegreesPerSecond)
-                                        < ShooterConstants
-                                            .HOOD_HOMING_STOPPED_DEGREES_PER_SECOND)))
+                    () -> {
+                      // Ignore "stopped" until the hood has had time to start moving, otherwise
+                      // it finishes immediately against its own standstill. Feed the debouncer
+                      // every loop (false until then) so the stop must last the full debounce
+                      // time after that window, not just one slow sample.
+                      boolean pastStartup =
+                          timer.hasElapsed(ShooterConstants.HOOD_HOMING_MIN_MOVE_SECONDS);
+                      foundHardStop[0] =
+                          stopped.calculate(
+                              pastStartup
+                                  && Math.abs(inputs.hoodVelocityDegreesPerSecond)
+                                      < ShooterConstants.HOOD_HOMING_STOPPED_DEGREES_PER_SECOND);
+                      return foundHardStop[0];
+                    }))
         .withTimeout(ShooterConstants.HOOD_HOMING_TIMEOUT_SECONDS)
         .finallyDo(
             interrupted -> {
@@ -196,8 +201,9 @@ public final class ShooterSubsystem extends SubsystemBase {
               if (!foundHardStop[0]) {
                 // Timed out or was cancelled: the zero is unknown, so leave the encoder alone.
                 DriverStation.reportWarning("Hood homing did not find the hard stop.", false);
-              } else {
-                io.setHoodPosition(0);
+              } else if (!io.setHoodPosition(0)) {
+                // The stop was found but the TalonFX never took the new zero.
+                foundHardStop[0] = false;
               }
               Logger.recordOutput("Shooter/Hood/Homed", foundHardStop[0]);
             })

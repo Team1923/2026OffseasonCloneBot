@@ -46,6 +46,8 @@ public interface ShooterIO {
     public double hoodSupplyCurrentAmps = 0.0;
     public double hoodStatorCurrentAmps = 0.0;
     public double hoodTemperatureCelsius = 0.0;
+    /** True on the loop the hood TalonFX is first seen after a reboot, which loses its position. */
+    public boolean hoodMotorReset = false;
 
     /** Leader drum velocity; the followers mirror the leader. */
     public double drumVelocityRpm = 0.0;
@@ -65,6 +67,7 @@ public interface ShooterIO {
       table.put("HoodSupplyCurrentAmps", hoodSupplyCurrentAmps);
       table.put("HoodStatorCurrentAmps", hoodStatorCurrentAmps);
       table.put("HoodTemperatureCelsius", hoodTemperatureCelsius);
+      table.put("HoodMotorReset", hoodMotorReset);
 
       table.put("DrumVelocityRpm", drumVelocityRpm);
       table.put("DrumConnected", drumConnected);
@@ -84,6 +87,7 @@ public interface ShooterIO {
       hoodSupplyCurrentAmps = table.get("HoodSupplyCurrentAmps", hoodSupplyCurrentAmps);
       hoodStatorCurrentAmps = table.get("HoodStatorCurrentAmps", hoodStatorCurrentAmps);
       hoodTemperatureCelsius = table.get("HoodTemperatureCelsius", hoodTemperatureCelsius);
+      hoodMotorReset = table.get("HoodMotorReset", hoodMotorReset);
 
       drumVelocityRpm = table.get("DrumVelocityRpm", drumVelocityRpm);
       drumConnected = table.get("DrumConnected", drumConnected);
@@ -103,8 +107,14 @@ public interface ShooterIO {
   /** Sends a Phoenix control request to the drum leader; the followers mirror it. */
   default void setDrumControl(ControlRequest request) {}
 
-  /** Seeds the hood encoder with a known mechanism angle, used by homing. */
-  default void setHoodPosition(double degrees) {}
+  /**
+   * Seeds the hood encoder with a known mechanism angle, used by homing.
+   *
+   * @return whether the TalonFX accepted the new position
+   */
+  default boolean setHoodPosition(double degrees) {
+    return true;
+  }
 
   /** Real shooter hardware: a TalonFX hood and a leader + three follower TalonFX drum. */
   class Real implements ShooterIO {
@@ -179,6 +189,7 @@ public interface ShooterIO {
       inputs.hoodSupplyCurrentAmps = hoodSupplyCurrent.getValueAsDouble();
       inputs.hoodStatorCurrentAmps = hoodStatorCurrent.getValueAsDouble();
       inputs.hoodTemperatureCelsius = hoodTemperature.getValueAsDouble();
+      inputs.hoodMotorReset = hoodMotor.hasResetOccurred();
 
       BaseStatusSignal.refreshAll(drumVelocity);
       inputs.drumVelocityRpm = drumVelocity.getValueAsDouble() * 60.0;
@@ -209,8 +220,9 @@ public interface ShooterIO {
     }
 
     @Override
-    public void setHoodPosition(double degrees) {
-      hoodMotor.setPosition(Units.degreesToRotations(degrees));
+    public boolean setHoodPosition(double degrees) {
+      return PhoenixUtil.tryUntilOk(
+          "Shooter hood zero", () -> hoodMotor.setPosition(Units.degreesToRotations(degrees)));
     }
   }
 
