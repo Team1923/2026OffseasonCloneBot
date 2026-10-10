@@ -13,6 +13,7 @@ import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
 import frc.robot.Constants.IntakeConstants;
+import frc.robot.lib.phoenix.PhoenixUtil;
 import frc.robot.lib.sim.TalonFXMotorSim;
 import org.littletonrobotics.junction.LogTable;
 import org.littletonrobotics.junction.inputs.LoggableInputs;
@@ -116,8 +117,10 @@ public interface IntakeIO {
     private final Debouncer rollerConnectedDebounce = new Debouncer(0.5);
 
     public Real() {
-      arm.getConfigurator().apply(IntakeConstants.ARM_CONFIG);
-      roller.getConfigurator().apply(IntakeConstants.ROLLER_CONFIG);
+      PhoenixUtil.tryUntilOk(
+          "Intake arm config", () -> arm.getConfigurator().apply(IntakeConstants.ARM_CONFIG));
+      PhoenixUtil.tryUntilOk(
+          "Intake roller config", () -> roller.getConfigurator().apply(IntakeConstants.ROLLER_CONFIG));
     }
 
     @Override

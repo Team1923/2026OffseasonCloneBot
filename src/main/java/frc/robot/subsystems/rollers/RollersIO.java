@@ -11,6 +11,7 @@ import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
 import frc.robot.Constants.RollersConstants;
+import frc.robot.lib.phoenix.PhoenixUtil;
 import frc.robot.lib.sim.TalonFXMotorSim;
 import org.littletonrobotics.junction.LogTable;
 import org.littletonrobotics.junction.inputs.LoggableInputs;
@@ -74,7 +75,8 @@ public interface RollersIO {
     private final Debouncer connectedDebounce = new Debouncer(0.5);
 
     public Real() {
-      floorMotor.getConfigurator().apply(RollersConstants.MOTOR_CONFIG);
+      PhoenixUtil.tryUntilOk(
+          "Roller floor config", () -> floorMotor.getConfigurator().apply(RollersConstants.MOTOR_CONFIG));
     }
 
     @Override

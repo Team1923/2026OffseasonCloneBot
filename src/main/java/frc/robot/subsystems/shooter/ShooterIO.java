@@ -16,6 +16,7 @@ import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj.RobotController;
 import frc.robot.Constants.ShooterConstants;
+import frc.robot.lib.phoenix.PhoenixUtil;
 import frc.robot.lib.sim.TalonFXMotorSim;
 import java.util.ArrayList;
 import java.util.List;
@@ -135,10 +136,13 @@ public interface ShooterIO {
     private final Debouncer[] drumConnectedDebounce = new Debouncer[DRUM_MOTOR_COUNT];
 
     public Real() {
-      hoodMotor.getConfigurator().apply(ShooterConstants.HOOD_CONFIG);
+      PhoenixUtil.tryUntilOk(
+          "Shooter hood config", () -> hoodMotor.getConfigurator().apply(ShooterConstants.HOOD_CONFIG));
       for (int i = 0; i < DRUM_MOTOR_COUNT; i++) {
         TalonFX drumMotor = drumMotors[i];
-        drumMotor.getConfigurator().apply(ShooterConstants.DRUM_CONFIG);
+        PhoenixUtil.tryUntilOk(
+            "Shooter drum " + i + " config",
+            () -> drumMotor.getConfigurator().apply(ShooterConstants.DRUM_CONFIG));
         drumAppliedVolts.add(drumMotor.getMotorVoltage());
         drumSupplyCurrent.add(drumMotor.getSupplyCurrent());
         drumStatorCurrent.add(drumMotor.getStatorCurrent());
