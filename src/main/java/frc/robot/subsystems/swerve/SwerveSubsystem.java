@@ -280,15 +280,6 @@ public class SwerveSubsystem extends SubsystemBase {
         return Math.abs(errorDegrees) < Constants.SwerveConstants.HEADING_TOLERANCE_DEGREES;
     }
 
-    /** Returns whether the rear of the robot, where the shooter exits, is facing the target. */
-    public boolean isRearFacing(Pose2d target) {
-        Pose2d pose = getPose();
-        Rotation2d desiredHeading = target.getTranslation().minus(pose.getTranslation()).getAngle();
-        Rotation2d rearHeading = pose.getRotation().plus(Rotation2d.fromDegrees(180.0));
-        double errorDegrees = desiredHeading.minus(rearHeading).getDegrees();
-        return Math.abs(errorDegrees) < Constants.SwerveConstants.HEADING_TOLERANCE_DEGREES;
-    }
-
     @Override
     public void periodic() {
         io.updateInputs(inputs);

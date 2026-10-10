@@ -60,8 +60,11 @@ public class RobotContainer {
    */
   private void configureBindings() {
     // Autonomous Event Bindings
+    NamedCommands.registerCommand("SOTM_PREP", RobotCommands.prepareShootOnTheMoveCommand());
     NamedCommands.registerCommand("SOTM", RobotCommands.shootOnTheMoveCommand());
     NamedCommands.registerCommand("SOTM_END", RobotCommands.stopShootOnTheMoveCommand());
+    NamedCommands.registerCommand(
+        "INTAKE", RobotCommands.groundIntake(intakeSubsystem, rollersSubsystem));
 
     // Default Commands
     swerveSubsystem.setDefaultCommand(

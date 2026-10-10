@@ -8,14 +8,13 @@ import com.pathplanner.lib.path.PathPlannerPath;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj.DriverStation.Alliance;
-import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
-import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.Commands;
 import frc.robot.commands.autos.LDoubleNZ;
 import frc.robot.commands.autos.RDoubleNZ;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
 import java.util.function.Supplier;
+import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 public final class AutoInstantiateSelector {
   private enum AutoMode {
@@ -33,21 +32,21 @@ public final class AutoInstantiateSelector {
     }
   }
 
-  private final SendableChooser<AutoMode> chooser = new SendableChooser<>();
+  private final LoggedDashboardChooser<AutoMode> chooser =
+      new LoggedDashboardChooser<>("Auto Mode");
   private AutoMode loadedMode;
   private Alliance loadedAlliance;
   private Command loadedCommand;
 
   public AutoInstantiateSelector() {
-    chooser.setDefaultOption(
+    chooser.addDefaultOption(
         AutoMode.SOTM_L_DOUBLE_NZ.displayName, AutoMode.SOTM_L_DOUBLE_NZ);
     chooser.addOption(AutoMode.SOTM_R_DOUBLE_NZ.displayName, AutoMode.SOTM_R_DOUBLE_NZ);
-    SmartDashboard.putData("Auto Mode", chooser);
   }
 
   /** Reloads the autonomous command when the dashboard selection or alliance changes. */
   public void updateSelectedCommand() {
-    AutoMode mode = chooser.getSelected();
+    AutoMode mode = chooser.get();
     Alliance alliance = DriverStation.getAlliance().orElse(Alliance.Blue);
 
     if (loadedCommand != null && mode == loadedMode && alliance == loadedAlliance) {

@@ -9,6 +9,8 @@ import com.ctre.phoenix6.Utils;
 import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.DriverStation;
@@ -93,9 +95,20 @@ public final class VisionSubsystem extends SubsystemBase {
     return hoodAngleDegrees == null ? 0.0 : hoodAngleDegrees;
   }
 
-  /** Robot speed during SOTM; its direction is constrained by Choreo to be directly away from the hub. */
+  /** Field-relative robot velocity projected directly away from the alliance hub. */
   public double getBackingSpeedFromHubMetersPerSecond() {
-    return swerve.getCurrentSpeed();
+    Pose2d pose = getPose();
+    Translation2d hubToRobot =
+        pose.getTranslation().minus(getAllianceHubPose().getTranslation());
+    if (hubToRobot.getNorm() < 1e-6) {
+      return 0.0;
+    }
+
+    ChassisSpeeds fieldSpeeds =
+        ChassisSpeeds.fromRobotRelativeSpeeds(swerve.getSpeeds(), pose.getRotation());
+    return (fieldSpeeds.vxMetersPerSecond * hubToRobot.getX()
+            + fieldSpeeds.vyMetersPerSecond * hubToRobot.getY())
+        / hubToRobot.getNorm();
   }
 
   /** Distance-map RPM plus a feedforward for the measured radial backing velocity. */

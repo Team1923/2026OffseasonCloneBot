@@ -60,7 +60,7 @@ public final class RobotCommands {
     VisionSubsystem vision = VisionSubsystem.getInstance();
 
     BooleanSupplier feedAllowed =
-        () -> shooter.readyToShoot() && swerve.isRearFacing(vision.getAllianceHubPose());
+        () -> shooter.readyToShoot() && swerve.isFacing(vision.getAllianceHubPose());
 
     StateHandler stateHandler = StateHandler.getInstance();
 
@@ -71,6 +71,14 @@ public final class RobotCommands {
         .finallyDo(interrupted -> stateHandler.shootOnTheMoveActive = false)
         .onlyIf(DriverStation::isAutonomousEnabled)
         .withName("ShootOnTheMove");
+  }
+
+  /** Spins up the drum and tracks the SOTM hood setpoint without feeding game pieces. */
+  public static Command prepareShootOnTheMoveCommand() {
+    return ShooterSubsystem.getInstance()
+        .shootOnTheMoveCommand()
+        .onlyIf(DriverStation::isAutonomousEnabled)
+        .withName("PrepareShootOnTheMove");
   }
 
   /** Ends the SOTM window; the running SOTM command then performs its normal safe cleanup. */
