@@ -5,6 +5,7 @@
 package frc.robot.subsystems.shooter;
 
 import com.ctre.phoenix6.controls.MotionMagicVoltage;
+import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
 import edu.wpi.first.math.filter.Debouncer;
@@ -75,6 +76,9 @@ public final class ShooterSubsystem extends SubsystemBase {
     "leader", "follower one", "follower two", "follower three"
   };
 
+  /** Lets the drum spin down in its Coast neutral mode instead of braking it to 0 RPM. */
+  private static final NeutralOut DRUM_NEUTRAL_REQUEST = new NeutralOut();
+
   private final StateHandler stateHandler = StateHandler.getInstance();
   private final ShooterIO io;
   private final ShooterIO.ShooterIOInputs inputs = new ShooterIO.ShooterIOInputs();
@@ -122,7 +126,11 @@ public final class ShooterSubsystem extends SubsystemBase {
 
   /** Applies the desired drum state. Ordinary commands request states instead. */
   public void applyDrumState(ShooterDrumState desiredState) {
-    io.setDrumControl(desiredState.request);
+    // A 0 RPM velocity setpoint is closed-loop braking: from shooting speed the four drum motors
+    // drive several volts against their back-EMF and pull their full supply limit from the
+    // battery on every trigger release. With no speed wanted, let the drum coast down instead.
+    io.setDrumControl(
+        desiredState.request.Velocity == 0 ? DRUM_NEUTRAL_REQUEST : desiredState.request);
     Logger.recordOutput("Shooter/Drum/AppliedState", desiredState);
     Logger.recordOutput("Shooter/Drum/SetpointRpm", desiredState.request.Velocity * 60.0);
   }
