@@ -7,6 +7,7 @@ import com.ctre.phoenix6.controls.Follower;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.MotorAlignmentValue;
 import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.filter.Debouncer.DebounceType;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Angle;
@@ -132,7 +133,7 @@ public interface ShooterIO {
     private final List<StatusSignal<Current>> drumStatorCurrent = new ArrayList<>();
     private final List<StatusSignal<Temperature>> drumTemperature = new ArrayList<>();
 
-    private final Debouncer hoodConnectedDebounce = new Debouncer(0.5);
+    private final Debouncer hoodConnectedDebounce = new Debouncer(0.5, DebounceType.kFalling);
     private final Debouncer[] drumConnectedDebounce = new Debouncer[DRUM_MOTOR_COUNT];
 
     public Real() {
@@ -147,7 +148,7 @@ public interface ShooterIO {
         drumSupplyCurrent.add(drumMotor.getSupplyCurrent());
         drumStatorCurrent.add(drumMotor.getStatorCurrent());
         drumTemperature.add(drumMotor.getDeviceTemp());
-        drumConnectedDebounce[i] = new Debouncer(0.5);
+        drumConnectedDebounce[i] = new Debouncer(0.5, DebounceType.kFalling);
       }
 
       // TODO: Verify follower directions on the assembled drum before enabling it.

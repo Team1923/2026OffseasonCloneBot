@@ -5,6 +5,7 @@ import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.filter.Debouncer.DebounceType;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.units.measure.Current;
@@ -72,7 +73,7 @@ public interface RollersIO {
     private final StatusSignal<Current> statorCurrent = floorMotor.getStatorCurrent();
     private final StatusSignal<Temperature> temperature = floorMotor.getDeviceTemp();
 
-    private final Debouncer connectedDebounce = new Debouncer(0.5);
+    private final Debouncer connectedDebounce = new Debouncer(0.5, DebounceType.kFalling);
 
     public Real() {
       PhoenixUtil.tryUntilOk(
