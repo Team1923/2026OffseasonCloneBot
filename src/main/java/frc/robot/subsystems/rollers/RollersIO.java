@@ -5,12 +5,15 @@ import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.filter.Debouncer.DebounceType;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.units.measure.AngularVelocity;
 import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj.DigitalInput;
+import edu.wpi.first.wpilibj.simulation.DIOSim;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import frc.robot.Constants.RollersConstants;
 import frc.robot.lib.sim.TalonFXMotorSim;
 import org.littletonrobotics.junction.LogTable;
@@ -20,8 +23,9 @@ import org.littletonrobotics.junction.inputs.LoggableInputs;
  * Hardware layer for the hopper floor roller.
  *
  * <ul>
- *   <li>{@link Real} talks to the TalonFX on the robot.
- *   <li>{@link Sim} runs the same TalonFX code against simulated physics.
+ *   <li>{@link Real} talks to the TalonFX and the beam-break DIO on the robot.
+ *   <li>{@link Sim} runs the same TalonFX code against simulated physics; the beam break is driven
+ *       by the SmartDashboard toggle "Sim/Rollers Beam Broken".
  *   <li>{@code new RollersIO() {}} does nothing and is used for log replay.
  * </ul>
  */
@@ -65,7 +69,7 @@ public interface RollersIO {
   /** Sends a Phoenix control request to the floor roller motor. */
   default void setFloorControl(ControlRequest request) {}
 
-  /** Real rollers hardware: one TalonFX motor controller. */
+  /** Real rollers hardware: one TalonFX motor controller and a DIO beam break. */
   class Real implements RollersIO {
     protected final TalonFX floorMotor = new TalonFX(RollersConstants.MOTOR_ID);
     protected final DigitalInput beamBreak =
@@ -78,6 +82,8 @@ public interface RollersIO {
     private final StatusSignal<Temperature> temperature = floorMotor.getDeviceTemp();
 
     private final Debouncer connectedDebounce = new Debouncer(0.5);
+    private final Debouncer beamBreakDebounce =
+        new Debouncer(RollersConstants.BEAM_BREAK_DEBOUNCE_SECONDS, DebounceType.kBoth);
 
     public Real() {
       floorMotor.getConfigurator().apply(RollersConstants.MOTOR_CONFIG);
@@ -90,7 +96,8 @@ public interface RollersIO {
               velocity, appliedVolts, supplyCurrent, statorCurrent, temperature);
 
       inputs.floorConnected = connectedDebounce.calculate(status.isOK());
-      inputs.pieceDetected = !beamBreak.get(); // TODO: verify polarity on the real sensor
+      inputs.pieceDetected =
+          beamBreakDebounce.calculate(beamBreak.get() != RollersConstants.BEAM_BREAK_INVERTED);
       inputs.floorVelocityRpm = velocity.getValueAsDouble() * 60.0;
       inputs.floorAppliedVolts = appliedVolts.getValueAsDouble();
       inputs.floorSupplyCurrentAmps = supplyCurrent.getValueAsDouble();
@@ -113,9 +120,20 @@ public interface RollersIO {
             RollersConstants.SIM_MOI_KG_METERS_SQUARED,
             RollersConstants.GEAR_RATIO);
 
+    /** SmartDashboard toggle that simulates a piece breaking the beam. */
+    static final String BEAM_BROKEN_KEY = "Sim/Rollers Beam Broken";
+
+    private final DIOSim beamBreakSim = new DIOSim(beamBreak);
+
+    public Sim() {
+      SmartDashboard.putBoolean(BEAM_BROKEN_KEY, false);
+    }
+
     @Override
     public void updateInputs(RollersIOInputs inputs) {
       floorSim.update();
+      boolean beamBroken = SmartDashboard.getBoolean(BEAM_BROKEN_KEY, false);
+      beamBreakSim.setValue(beamBroken != RollersConstants.BEAM_BREAK_INVERTED);
       super.updateInputs(inputs);
     }
   }

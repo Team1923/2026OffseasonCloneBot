@@ -82,7 +82,6 @@ public final class RollersSubsystem extends SubsystemBase {
     io.setFloorControl(desiredState.request);
     Logger.recordOutput("Rollers/Floor/AppliedState", desiredState);
     Logger.recordOutput("Rollers/Floor/SetpointRpm", desiredState.request.Velocity * 60.0);
-    Logger.recordOutput("Rollers/Floor/PieceDetected", inputs.pieceDetected);
   }
 
   public boolean atState(RollerFloorState desiredState) {

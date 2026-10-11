@@ -171,6 +171,11 @@ public final class Constants {
   public static final class RollersConstants {
     public static final int MOTOR_ID = 17; // TODO: placeholder ID, unique so sim devices don't collide
     public static final int BEAM_BREAK_DIO_PORT = 0; // TODO: verify the real DIO port on the robot
+    // TODO: verify polarity on the real sensor. true = the DIO reads false (low) when a piece breaks
+    // the beam (typical for beam breaks); flip to false if the sensor reads high with a piece.
+    public static final boolean BEAM_BREAK_INVERTED = true;
+    // Both-edge debounce so a ball flickering at the beam edge doesn't chatter the floor roller.
+    public static final double BEAM_BREAK_DEBOUNCE_SECONDS = 0.05; // TODO: tune
     public static final double GEAR_RATIO = 3.0; // motor rotations per roller rotation
     public static final double RPM_TOLERANCE = 100.0; // TODO: tune
 
