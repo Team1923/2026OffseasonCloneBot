@@ -19,15 +19,27 @@ public final class PhoenixUtil {
    * @return whether the call eventually succeeded
    */
   public static boolean tryUntilOk(String description, Supplier<StatusCode> command) {
+    return tryUntilOk(description, MAX_ATTEMPTS, command);
+  }
+
+  /**
+   * Like {@link #tryUntilOk(String, Supplier)} with a caller-chosen attempt count. Each failed
+   * attempt can block for the call's full timeout, so use one attempt on the main robot loop.
+   * Warning codes count as success: the call was still applied.
+   *
+   * @return whether the call eventually succeeded
+   */
+  public static boolean tryUntilOk(
+      String description, int maxAttempts, Supplier<StatusCode> command) {
     StatusCode status = StatusCode.OK;
-    for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    for (int attempt = 0; attempt < maxAttempts; attempt++) {
       status = command.get();
-      if (status.isOK()) {
+      if (!status.isError()) {
         return true;
       }
     }
     DriverStation.reportError(
-        description + " failed after " + MAX_ATTEMPTS + " attempts: " + status.getName(), false);
+        description + " failed after " + maxAttempts + " attempts: " + status.getName(), false);
     return false;
   }
 }

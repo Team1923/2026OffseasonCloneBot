@@ -354,6 +354,12 @@ public class SwerveSubsystem extends SubsystemBase {
     }
 
     private Command buildOnTheFlyPath(Pose2d waypoint) {
+        if (!AutoBuilder.isConfigured()) {
+            // followPath throws when AutoBuilder failed to configure, and this runs inside the
+            // scheduler, so an exception here would crash robot code mid-match.
+            DriverStation.reportError("AutoBuilder is not configured; skipping on-the-fly path", false);
+            return Commands.none();
+        }
 
         // List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
         // getPose(),

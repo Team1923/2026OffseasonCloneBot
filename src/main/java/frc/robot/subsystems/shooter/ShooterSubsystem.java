@@ -86,6 +86,11 @@ public final class ShooterSubsystem extends SubsystemBase {
   private final Alert hoodDisconnectedAlert =
       new Alert("Shooter hood motor disconnected", AlertType.kError);
   private final Alert[] drumDisconnectedAlerts = new Alert[ShooterIO.DRUM_MOTOR_COUNT];
+  private final Alert hoodZeroLostAlert =
+      new Alert("Shooter hood motor rebooted and lost its zero; re-home the hood", AlertType.kError);
+
+  /** Whether the hood encoder holds a zero from homing that a motor reboot has not wiped. */
+  private boolean hoodHomed = false;
 
   private ShooterSubsystem(ShooterIO io) {
     this.io = io;
@@ -102,6 +107,12 @@ public final class ShooterSubsystem extends SubsystemBase {
     Logger.processInputs("Shooter", inputs);
 
     hoodDisconnectedAlert.set(!inputs.hoodConnected);
+    if (inputs.hoodMotorReset && hoodHomed) {
+      // A rebooted TalonFX reads 0 wherever the hood sits, so every hood angle is now offset.
+      hoodHomed = false;
+      hoodZeroLostAlert.set(true);
+      Logger.recordOutput("Shooter/Hood/Homed", false);
+    }
     for (int i = 0; i < ShooterIO.DRUM_MOTOR_COUNT; i++) {
       drumDisconnectedAlerts[i].set(!inputs.drumConnected[i]);
     }
@@ -190,6 +201,8 @@ public final class ShooterSubsystem extends SubsystemBase {
                       foundHardStop[0] =
                           stopped.calculate(
                               pastStartup
+                                  // A disconnected hood reads a stale 0 velocity, not a stop.
+                                  && inputs.hoodConnected
                                   && Math.abs(inputs.hoodVelocityDegreesPerSecond)
                                       < ShooterConstants.HOOD_HOMING_STOPPED_DEGREES_PER_SECOND);
                       return foundHardStop[0];
@@ -204,6 +217,10 @@ public final class ShooterSubsystem extends SubsystemBase {
               } else if (!io.setHoodPosition(0)) {
                 // The stop was found but the TalonFX never took the new zero.
                 foundHardStop[0] = false;
+              }
+              if (foundHardStop[0]) {
+                hoodHomed = true;
+                hoodZeroLostAlert.set(false);
               }
               Logger.recordOutput("Shooter/Hood/Homed", foundHardStop[0]);
             })

@@ -221,8 +221,10 @@ public interface ShooterIO {
 
     @Override
     public boolean setHoodPosition(double degrees) {
+      // Called from the homing command on the robot loop, so one attempt only: retrying a
+      // missing motor would stall the scheduler for each attempt's full timeout.
       return PhoenixUtil.tryUntilOk(
-          "Shooter hood zero", () -> hoodMotor.setPosition(Units.degreesToRotations(degrees)));
+          "Shooter hood zero", 1, () -> hoodMotor.setPosition(Units.degreesToRotations(degrees)));
     }
   }
 
