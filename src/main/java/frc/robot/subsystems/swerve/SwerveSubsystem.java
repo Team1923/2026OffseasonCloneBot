@@ -336,14 +336,13 @@ public class SwerveSubsystem extends SubsystemBase {
                     : diffInTranslation.getAngle(); // otherwise, follow the heading difference between us and the reef
         }
 
-        // otherwise, if we are here, we need to velocity compensate.
-        // getSpeeds() is robot-relative, so rotate it into the field frame first.
-        ChassisSpeeds fieldSpeeds = ChassisSpeeds.fromRobotRelativeSpeeds(getSpeeds(), getPose().getRotation());
+        // otherwise, if we are here, we need to velocity compensate
 
-        Rotation2d heading = new Rotation2d(fieldSpeeds.vxMetersPerSecond,
-                fieldSpeeds.vyMetersPerSecond);
+        // CTRE reports robot-relative speeds; rotate into the field frame the path is built in.
+        Rotation2d robotRelativeHeading = new Rotation2d(getSpeeds().vxMetersPerSecond,
+                getSpeeds().vyMetersPerSecond);
 
-        return heading;
+        return robotRelativeHeading.plus(getPose().getRotation());
     }
 
     /**
