@@ -13,6 +13,11 @@ supply current, Connected, battery, and the state/command timeline.
 | Battery under ~8 V when motors start; `BrownedOut` true | Electrical | weak/old battery, loose main lead or breaker, everything accelerating at once |
 | `CommsDisableCount` increases | Electrical | radio power, radio-roboRIO ethernet, field network |
 | CAN utilization over 70%, bus-off or TX-full counts climbing | Electrical | wiring fault or bus overload (too many status signals) |
+| DS log: "lost communication" / no-reply periods | Electrical | radio lost power (check battery at that second: a sag reboots the radio), loose ethernet at radio or roboRIO, roboRIO/code restart (look for a new robot log starting then) |
+| DS log: packet loss or round-trip time high, no full drop | Electrical / Field | radio mounting/placement, field interference; compare with other matches on the same field |
+| DS log: a PD channel's current drops to 0 while its motor is commanded | Electrical | that breaker tripped (sustained overload); the controller also shows disconnected |
+| DS log: watchdog while enabled | Programming | loop overruns or a blocking call starving motor safety |
+| DS log: joystick unplugged | Field/DS | USB cable/hub at the driver station, not the robot |
 | High applied volts + high stator current + no motion | Mechanical | jam, binding, game piece stuck, hitting a hard stop |
 | Motion but slower than the setpoint, sitting at the stator limit | Mechanical (or limit too low) | friction, tight belt/chain, rubbing, heavy load |
 | Current rises over the match on the same move; temperature climbs | Mechanical | something getting tighter (bearing, rubbing); also motors sharing load unevenly |
@@ -47,9 +52,16 @@ think kS/friction. If it gets worse through the match, think heat or mechanical 
 above the others from the first second. Battery: all motors' current fine but volts limited by a
 sagging battery. Gains: currents normal, volts below 11 V, error shrinking slowly (kV too low).
 
-**Disconnect: wiring vs brownout.** If `BrownedOut` or a battery dip is at the same moment,
-the controller rebooted from low voltage (electrical, but the fix is the battery or current draw).
-If the battery was fine, it is wiring or that controller's power.
+**Disconnect: wiring vs brownout vs breaker.** If `BrownedOut` or a battery dip is at the same
+moment, the controller rebooted from low voltage (electrical, but the fix is the battery or current
+draw). If the DS log shows that controller's PD channel at 0 A, its breaker tripped. If the battery
+was fine and the channel still had current, it is the CAN wiring to that controller.
+
+**Robot "died" mid-match: comms vs code vs power.** Use both logs. DS shows lost communication and
+the robot log simply stops: the roboRIO or radio lost power or rebooted. Robot log continues but the
+DS lost comms: radio/network only (the robot kept running, disabled). Robot log ends and a new one
+starts shortly after: the robot code crashed and restarted (check the console and alerts at the end
+of the first log).
 
 **"Shooter never fed".** Walk `readyToShoot`: was a shoot command running? Drum setpoint above 0?
 Drum within tolerance? Hood within tolerance? For ranged shots, heading within 5 degrees? The

@@ -9,6 +9,9 @@ Commands (run with --help on any of them for options):
   timeline LOG               mode changes, state transitions, commands, alerts, faults
   series LOG KEY [KEY ...]   print values of keys over time (sample-and-hold)
   compare SIMLOG             replay log: findings fixed/added by a code change
+  ingest [USB] [--report]    copy logs off the robot USB stick, pair DS logs, write reports
+  ds DSLOG                   summarize a Driver Station log on its own
+  simtest [SIMLOG]           check the whole workflow end to end with a simulator log
 
 Times are seconds since the log started. Pure Python 3.8+, no packages needed.
 """
@@ -18,14 +21,19 @@ from __future__ import annotations
 import argparse
 import math
 import os
+import platform
+import shutil
 import statistics
+import string
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import robot_profile as P  # noqa: E402
+import robot_model as RM  # noqa: E402
+from dslog import read_dslog, read_dslog_window, read_dsevents  # noqa: E402
 from wpilog import Series, WpiLog, pose2d_tuple  # noqa: E402
 
 DT = 0.02  # analysis grid, matches the 20 ms robot loop
@@ -50,7 +58,8 @@ class Finding:
 class Log:
     """WpiLog plus the robot-mode timeline and key fallbacks used by every analysis."""
 
-    def __init__(self, path: str, outputs: str = "auto"):
+    def __init__(self, path: str, outputs: str = "auto", ds_path: str | None = None):
+        """ds_path: a .dslog to pair with, None to find one automatically, or "none" to skip."""
         self.path = path
         self.raw = WpiLog.open(path)
         self._cache: dict[str, Series | None] = {}
@@ -63,8 +72,10 @@ class Log:
         self.outputs = outputs
         self.out_prefix = "ReplayOutputs/" if outputs == "replay" else "RealOutputs/"
         self.other_prefix = "RealOutputs/" if outputs == "replay" else "ReplayOutputs/"
+        # Mechanisms come from this log's keys; tolerances and limits from Constants.java.
+        self.model = RM.RobotModel(self.keys(), self.raw.type_of)
         self.end = self.raw.duration
-        enabled = self.get(*P.DS_ENABLED)
+        enabled = self.get(*RM.DS_ENABLED)
         if enabled is None or not len(enabled):
             # No Driver Station data (unusual): analyze the whole log as if enabled.
             self.enabled_intervals = [(0.0, self.end)]
@@ -72,9 +83,55 @@ class Log:
         else:
             self.enabled_intervals = intervals_where(enabled, bool, self.end)
             self.has_ds = True
-        self.auto = self.get(*P.DS_AUTO)
-        self.test = self.get(*P.DS_TEST)
+        self.auto = self.get(*RM.DS_AUTO)
+        self.test = self.get(*RM.DS_TEST)
         self.grid = grid_for(self.enabled_intervals)
+        self.ds = self.ds_events = None
+        self.ds_note = ""
+        if ds_path != "none":
+            self._attach_ds(ds_path)
+
+    def _attach_ds(self, ds_path: str | None):
+        """Finds the Driver Station log for this match (same folder or a dslogs/ folder next to it)
+        and lines its clock up with this log's."""
+        self.epoch0 = akit_epoch_offset(self.raw)
+        here = Path(self.path).resolve().parent
+        if ds_path:
+            candidates = [Path(ds_path)]
+        else:
+            candidates = [p for d in (here, here / "dslogs", here.parent / "dslogs") if d.is_dir()
+                          for p in d.glob("*.dslog")]
+        if not candidates:
+            return
+        if self.epoch0 is None:
+            self.ds_note = "DS logs found, but this log has no valid clock to line them up with."
+            return
+        match = best_ds_match(self.epoch0, self.epoch0 + self.end, ds_windows_of(candidates))
+        if match is None:
+            self.ds_note = "No DS log overlaps this log's time range."
+            return
+        self.ds = read_dslog(match)
+        events = match.with_suffix(".dsevents")
+        if events.is_file():
+            try:
+                self.ds_events = read_dsevents(events)
+            except ValueError:
+                pass
+        self.ds_note = f"Driver Station log: {match.name}"
+        if akit_clock_offset(self.raw) is None:
+            # The file-name time can be minutes off this log's t=0, so line the two logs up on
+            # their first enable instead.
+            first_ds = next((i for i in range(len(self.ds.times)) if self.ds.enabled(i)), None)
+            if self.has_ds and self.enabled_intervals and first_ds is not None:
+                self.epoch0 = self.ds.start_unix + self.ds.times[first_ds] - self.enabled_intervals[0][0]
+                self.ds_note += " (no robot clock in this log; times lined up on the first enable)"
+            else:
+                self.ds_note += " (no robot clock in this log; DS times are approximate)"
+
+    def ds_to_log_time(self, ds_t: float, start_unix: float | None = None) -> float:
+        """Converts a time in a DS file (seconds since it started) to this log's time."""
+        base = self.ds.start_unix if start_unix is None else start_unix
+        return base + ds_t - self.epoch0
 
     def resolve(self, key: str) -> str | None:
         """Profile keys say RealOutputs/; map them to the chosen outputs tree."""
@@ -138,17 +195,62 @@ def intervals_where(series: Series, predicate, end: float) -> list[tuple[float, 
     return [(a, b) for a, b in out if b > a]
 
 
-def intersect(a: list, b: list) -> list:
-    out, i, j = [], 0, 0
-    while i < len(a) and j < len(b):
-        lo, hi = max(a[i][0], b[j][0]), min(a[i][1], b[j][1])
-        if hi > lo:
-            out.append((lo, hi))
-        if a[i][1] < b[j][1]:
-            i += 1
-        else:
-            j += 1
+def akit_clock_offset(raw: WpiLog) -> float | None:
+    """Exact unix time of the log's t=0, from SystemStats/EpochTimeMicros (valid once the DS sets
+    the roboRIO clock). None if the log never had a valid clock."""
+    s = raw.series("SystemStats/EpochTimeMicros")
+    if s is not None:
+        offsets = [v / 1e6 - t for t, v in zip(s.times, s.values) if isinstance(v, int) and v > 1.5e15]
+        if offsets:
+            return statistics.median(offsets)
+    return None
+
+
+def akit_epoch_offset(raw: WpiLog) -> float | None:
+    """Unix time of the log's t=0: akit_clock_offset, falling back to the time in the
+    akit_yy-MM-dd_HH-mm-ss filename, which is the PC's local time in simulation and the roboRIO's
+    (UTC) on the robot. None if neither exists."""
+    exact = akit_clock_offset(raw)
+    if exact is not None:
+        return exact
+    import datetime
+    import re as _re
+    m = _re.search(r"akit_(\d\d-\d\d-\d\d_\d\d-\d\d-\d\d)", Path(raw.path).name)
+    if not m:
+        return None
+    stamp = datetime.datetime.strptime(m.group(1), "%y-%m-%d_%H-%M-%S")
+    mode = raw.series("RealMetadata/RobotMode")
+    is_sim = mode is not None and mode.values and mode.values[-1] in ("SIM", "REPLAY")
+    if is_sim:
+        start = stamp.timestamp()  # naive datetime = this computer's local time
+    else:
+        start = stamp.replace(tzinfo=datetime.timezone.utc).timestamp()
+    # In sim the name is set on the first cycle; on the robot a few seconds after the DS connects.
+    # Either way it is close enough to pick the overlapping DS log, but not to line up times
+    # exactly (Log._attach_ds re-aligns on the first enable when this fallback is used).
+    return start
+
+
+def ds_windows_of(candidates: list[Path]) -> list[tuple[Path, float, float]]:
+    """(path, start_unix, end_unix) of each readable .dslog, without decoding its records."""
+    out = []
+    for p in candidates:
+        try:
+            out.append((p, *read_dslog_window(p)))
+        except (ValueError, OSError):
+            continue
     return out
+
+
+def best_ds_match(akit_start: float, akit_end: float,
+                  windows: list[tuple[Path, float, float]]) -> Path | None:
+    """The .dslog overlapping [akit_start, akit_end] (unix seconds) the most, or None."""
+    best, best_overlap = None, 0.0
+    for p, a, b in windows:
+        overlap = min(akit_end, b) - max(akit_start, a)
+        if overlap > best_overlap:
+            best, best_overlap = p, overlap
+    return best
 
 
 def grid_for(intervals: list) -> list[float]:
@@ -215,14 +317,22 @@ def window_grid(log: Log, start: float | None, end: float | None) -> list[float]
 
 
 def analyze_mechanism(log: Log, name: str, grid: list[float]) -> tuple[dict, list[Finding]]:
-    m = P.MECHANISMS[name]
+    m = log.model.mechanisms[name]
     label = m["label"]
     f: list[Finding] = []
     ev: dict = {"name": name, "label": label, "present": False}
     if not grid:
         return ev, f
 
-    multi = "motor_names" in m
+    multi = m["multi_motor"]
+    if multi:
+        # Count motors from whichever per-motor array is logged (either may be missing or empty).
+        n_motors = 0
+        for key in (m["stator"], m["connected"]):
+            s = log.get(key)
+            if s is not None:
+                n_motors = max(n_motors, max((len(v) for v in s.values if isinstance(v, list)), default=0))
+        motor_names = [log.model.motor_name(m, k) for k in range(n_motors)]
     meas_s = log.get(m["measured"])
     sp_s = log.get(m["setpoint"])
     if meas_s is None and sp_s is None:
@@ -240,7 +350,7 @@ def analyze_mechanism(log: Log, name: str, grid: list[float]) -> tuple[dict, lis
     volts = [num(v) for v in sample(log.get(m["volts"]), grid, lead)]
     stator = [num(v) for v in sample(log.get(m["stator"]), grid, lead)]
     supply = [num(v) for v in sample(log.get(m["supply"]), grid, lead)]
-    battery = [num(v) for v in sample(log.get(*P.BATTERY), grid)]
+    battery = [num(v) for v in sample(log.get(*RM.BATTERY), grid)]
     tol = m["tolerance"]
     kind = m["kind"]
 
@@ -365,11 +475,12 @@ def analyze_mechanism(log: Log, name: str, grid: list[float]) -> tuple[dict, lis
 
     # --- stall: pushing hard but not moving --------------------------------------
     motion = vel if kind == "position" else meas
-    limit = m["stator_limit"]
+    limit = m["stator_limit"]  # None when Constants.java has no stator limit for it
+    stall_amps = 0.4 * limit if limit else 30.0
     stall_flags = []
     for v, c, mv in zip(volts, stator, motion):
         still = mv is not None and abs(mv) < (3.0 if kind == "position" else 50.0)
-        stall_flags.append(v is not None and c is not None and abs(v) > 3.0 and abs(c) > 0.4 * limit and still)
+        stall_flags.append(v is not None and c is not None and abs(v) > 3.0 and abs(c) > stall_amps and still)
     stalls = runs(grid, stall_flags, 0.3)
     ev["stalls"] = stalls
     if stalls:
@@ -379,8 +490,11 @@ def analyze_mechanism(log: Log, name: str, grid: list[float]) -> tuple[dict, lis
                          stalls[0][0]))
 
     # --- current limits, saturation ----------------------------------------------
-    at_stator = runs(grid, [c is not None and abs(c) >= 0.95 * limit for c in stator], 0.1)
-    at_supply = runs(grid, [c is not None and abs(c) >= 0.95 * m["supply_limit"] for c in supply], 0.1)
+    at_stator = runs(grid, [limit is not None and c is not None and abs(c) >= 0.95 * limit
+                            for c in stator], 0.1)
+    supply_limit = m["supply_limit"]
+    at_supply = runs(grid, [supply_limit is not None and c is not None and abs(c) >= 0.95 * supply_limit
+                            for c in supply], 0.1)
     sat = runs(grid, [v is not None and b is not None and abs(v) >= min(11.0, b - 0.5)
                       for v, b in zip(volts, battery)], 0.5)
     ev["peak_stator"] = max((abs(c) for c in stator if c is not None), default=None)
@@ -452,7 +566,7 @@ def analyze_mechanism(log: Log, name: str, grid: list[float]) -> tuple[dict, lis
     conn_s = log.get(m["connected"])
     ev["disconnects"] = []
     if conn_s is not None:
-        names = m.get("motor_names", [None])
+        names = motor_names if multi else [None]
         for k, motor in enumerate(names):
             idx = k if multi else None
             vals = sample(conn_s, grid, idx)
@@ -466,8 +580,8 @@ def analyze_mechanism(log: Log, name: str, grid: list[float]) -> tuple[dict, lis
                                  "CAN wiring/connectors and power to that controller.", drops[0][0]))
 
     # --- multi-motor drum: share of the load --------------------------------------
-    if multi:
-        names = m["motor_names"]
+    if multi and motor_names:
+        names = motor_names
         st_all = log.get(m["stator"])
         means = []
         for k in range(len(names)):
@@ -516,29 +630,49 @@ def analyze_states(log: Log) -> tuple[list, list[Finding]]:
 
 
 def analyze_shooting(log: Log) -> tuple[dict, list[Finding]]:
-    ev, f = {}, []
+    """Shoot attempts vs readiness. The angle (position) and speed (velocity) mechanisms are the
+    ones in the same subsystem as the */ReadyToShoot output, e.g. Shooter hood and Shooter drum."""
+    ev, f = {"homing_results": []}, []
+    sh = log.model.shooting
+    for key in sh["homed"]:
+        homed = log.get(key)
+        if homed is None:
+            continue
+        who = key.split("Outputs/", 1)[-1].rsplit("/", 1)[0].replace("/", " ")
+        for t, v in zip(homed.times, homed.values):
+            ev["homing_results"].append((t, v, who))
+            if not v:
+                f.append(Finding("WARN", "Mechanical", who,
+                                 "homing did not find the hard stop (timed out or cancelled); its "
+                                 "angles are unreliable until it homes.", t))
     g = log.grid
     shoot = [False] * len(g)
-    for key in P.SHOOTING["shoot_commands"]:
+    for key in sh["shoot_commands"]:
         s = log.get(key)
         if s is not None:
             shoot = [a or bool(b) for a, b in zip(shoot, sample(s, g))]
     attempts = runs(g, shoot)
     ev["attempts"] = len(attempts)
     ev["attempt_seconds"] = total(attempts)
-    if not attempts:
+    if not attempts or sh["ready"] is None:
         return ev, f
-    ready = sample(log.get(P.SHOOTING["ready"]), g)
-    hood, drum = P.MECHANISMS["hood"], P.MECHANISMS["drum"]
-    hood_err = [None if (a is None or b is None) else abs(a - b) for a, b in
-                zip(sample(log.get(hood["measured"]), g), sample(log.get(hood["setpoint"]), g))]
-    drum_sp = sample(log.get(drum["setpoint"]), g)
-    drum_err = [None if (a is None or b is None) else abs(a - b) for a, b in
-                zip(sample(log.get(drum["measured"]), g), drum_sp)]
-    head_err = sample(log.get(P.SWERVE["heading_error"]), g)
-    swerve_state = sample(log.get("RealOutputs/StateHandler/Swerve/State"), g)
-    blockers = {"drum not at speed": 0, "hood not at angle": 0, "drum setpoint is 0": 0,
-                "heading not on target": 0}
+    ready = sample(log.get(sh["ready"]), g)
+    angle, speed = sh["position_mech"], sh["velocity_mech"]
+
+    def err(m):
+        if m is None:
+            return [None] * len(g)
+        return [None if (a is None or b is None) else abs(a - b) for a, b in
+                zip(sample(log.get(m["measured"]), g), sample(log.get(m["setpoint"]), g))]
+
+    angle_err, speed_err = err(angle), err(speed)
+    speed_sp = sample(log.get(speed["setpoint"]), g) if speed else [None] * len(g)
+    head_err = sample(log.get(log.model.swerve["heading_error"]), g)
+    swerve_state = sample(log.get(log.model.swerve["state"]), g)
+    speed_name = speed["label"] if speed else "speed"
+    angle_name = angle["label"] if angle else "angle"
+    blockers = {f"{speed_name} not at speed": 0, f"{angle_name} not at angle": 0,
+                f"{speed_name} setpoint is 0": 0, "heading not on target": 0}
     ready_n = shoot_n = 0
     to_ready = []
     for a, b in attempts:
@@ -552,14 +686,14 @@ def analyze_shooting(log: Log) -> tuple[dict, list[Finding]]:
         if ready[i]:
             ready_n += 1
             continue
-        if num(drum_sp[i]) is not None and abs(drum_sp[i]) < 1:
-            blockers["drum setpoint is 0"] += 1
-        if drum_err[i] is not None and drum_err[i] >= drum["tolerance"]:
-            blockers["drum not at speed"] += 1
-        if hood_err[i] is not None and hood_err[i] >= hood["tolerance"]:
-            blockers["hood not at angle"] += 1
+        if num(speed_sp[i]) is not None and abs(speed_sp[i]) < 1:
+            blockers[f"{speed_name} setpoint is 0"] += 1
+        if speed and speed_err[i] is not None and speed_err[i] >= speed["tolerance"]:
+            blockers[f"{speed_name} not at speed"] += 1
+        if angle and angle_err[i] is not None and angle_err[i] >= angle["tolerance"]:
+            blockers[f"{angle_name} not at angle"] += 1
         if (swerve_state[i] == "FACING_HEADING" and num(head_err[i]) is not None
-                and abs(head_err[i]) >= P.SWERVE["heading_tolerance"]):
+                and abs(head_err[i]) >= log.model.swerve["heading_tolerance"]):
             blockers["heading not on target"] += 1
     ev["ready_fraction"] = ready_n / shoot_n if shoot_n else None
     ev["blockers_seconds"] = {k: v * DT for k, v in blockers.items() if v}
@@ -567,51 +701,41 @@ def analyze_shooting(log: Log) -> tuple[dict, list[Finding]]:
     ev["never_ready_attempts"] = len(attempts) - len(to_ready)
     if ev["never_ready_attempts"]:
         top = max(blockers, key=blockers.get)
-        cat = "Programming" if top == "drum setpoint is 0" else "Unknown"
+        cat = "Programming" if top.endswith("setpoint is 0") else "Unknown"
         f.append(Finding("WARN", cat, "Shooting",
                          f"{ev['never_ready_attempts']} of {len(attempts)} shoot attempts never "
                          f"became ready, so nothing was fed. Main blocker: {top}."))
-    homed = log.get(P.SHOOTING["homed"])
-    if homed is not None:
-        ev["homing_results"] = list(zip(homed.times, homed.values))
-        for t, v in ev["homing_results"]:
-            if not v:
-                f.append(Finding("WARN", "Mechanical", "Shooter hood",
-                                 "hood homing did not find the hard stop (timed out or cancelled); "
-                                 "hood angles are unreliable until it homes.", t))
-    else:
-        ev["homing_results"] = []
     return ev, f
 
 
 def analyze_electrical(log: Log) -> tuple[dict, list[Finding]]:
     ev, f = {}, []
     g = log.grid
-    bat = [num(v) for v in sample(log.get(*P.BATTERY), g)]
+    bat = [num(v) for v in sample(log.get(*RM.BATTERY), g)]
     vals = [v for v in bat if v is not None]
     if vals:
         ev["battery_min"] = min(vals)
         ev["battery_min_time"] = g[bat.index(min(vals))]
         ev["battery_mean"] = statistics.fmean(vals)
-        low = runs(g, [v is not None and v < P.BATTERY_WARN_V for v in bat])
+        low = runs(g, [v is not None and v < RM.BATTERY_WARN_V for v in bat])
         ev["battery_low_seconds"] = total(low)
-        if min(vals) < P.BATTERY_CRIT_V:
+        if min(vals) < RM.BATTERY_CRIT_V:
             f.append(Finding("CRITICAL", "Electrical", "Battery",
                              f"dipped to {min(vals):.2f} V (brownout starts ~6.8 V). Weak/old battery, "
                              "loose main connection, or too much current draw at once.",
                              ev["battery_min_time"]))
         elif total(low) > 2:
             f.append(Finding("WARN", "Electrical", "Battery",
-                             f"below {P.BATTERY_WARN_V} V for {total(low):.1f}s; check battery "
+                             f"below {RM.BATTERY_WARN_V} V for {total(low):.1f}s; check battery "
                              "charge/health and main breaker connections.", low[0][0]))
-    bo = log.get(P.BROWNOUT)
+    bo = log.get(RM.BROWNOUT)
     if bo is not None:
         events = intervals_where(bo, bool, log.end)
         ev["brownouts"] = events
         if events:
             f.append(Finding("CRITICAL", "Electrical", "roboRIO",
                              f"browned out {len(events)}x: motor outputs were cut.", events[0][0]))
-    cd = log.get(P.COMMS_DISABLE)
+    cd = log.get(RM.COMMS_DISABLE)
     if cd is not None and cd.values:
         delta = cd.values[-1] - cd.values[0]
         ev["comms_disables"] = delta
@@ -620,7 +744,7 @@ def analyze_electrical(log: Log) -> tuple[dict, list[Finding]]:
             f.append(Finding("CRITICAL", "Electrical", "Radio/DS link",
                              f"robot lost DS communication {delta}x (comms disable). Check radio "
                              "power/ethernet and roboRIO-radio cable.", t))
-    util = log.get(P.CAN_UTIL)
+    util = log.get(RM.CAN_UTIL)
     if util is not None:
         u = [num(v) for v in sample(util, g)]
         u = [v for v in u if v is not None]
@@ -631,7 +755,7 @@ def analyze_electrical(log: Log) -> tuple[dict, list[Finding]]:
                 f.append(Finding("WARN", "Electrical", "CAN bus",
                                  f"average utilization {ev['can_util_mean']:.0f}%: lower status "
                                  "signal rates or move devices to a CANivore."))
-    for key, label in [(P.CAN_OFF, "bus-off events"), (P.CAN_TX_FULL, "TX buffer full")]:
+    for key, label in [(RM.CAN_OFF, "bus-off events"), (RM.CAN_TX_FULL, "TX buffer full")]:
         s = log.get(key)
         if s is not None and s.values:
             d = s.values[-1] - s.values[0]
@@ -641,22 +765,146 @@ def analyze_electrical(log: Log) -> tuple[dict, list[Finding]]:
                 f.append(Finding("WARN" if label == "TX buffer full" else "CRITICAL", "Electrical",
                                  "CAN bus", f"{d} {label}: CAN wiring fault, missing terminator, "
                                  "or a device shorting the bus.", t))
-    loop = log.get(P.LOOP_TIME)
+    loop = log.get(RM.LOOP_TIME)
     if loop is not None:
         lv = [(t, v) for t, v in zip(loop.times, loop.values) if num(v) is not None]
-        over = [(t, v) for t, v in lv if v > P.LOOP_OVERRUN_MS]
+        over = [(t, v) for t, v in lv if v > RM.LOOP_OVERRUN_MS]
         ev["loop_max_ms"] = max((v for _, v in lv), default=None)
         ev["loop_overruns"] = len(over)
         if len(over) > 50:
             f.append(Finding("WARN", "Programming", "Robot loop",
-                             f"{len(over)} loops over {P.LOOP_OVERRUN_MS:.0f} ms (max "
+                             f"{len(over)} loops over {RM.LOOP_OVERRUN_MS:.0f} ms (max "
                              f"{ev['loop_max_ms']:.0f} ms): slow code, blocking calls, or GC.",
                              over[0][0]))
     return ev, f
 
 
+# Routine DS event messages that carry no diagnostic value.
+_DS_EVENT_NOISE = ("Info roboRIO: Disk Free", "Info Joystick", "-- FRC Driver Station", "FMS Connected:")
+
+
+def ds_event_kind(text: str) -> str | None:
+    """Classifies a DS event message; None for routine noise."""
+    low = text.lower()
+    if any(text.startswith(n) for n in _DS_EVENT_NOISE):
+        return None
+    if "lost communication" in low or "no robot communication" in low:
+        return "comms"
+    if "brownout" in low or "voltage" in low:
+        return "power"
+    if "not keeping up" in low or "ds laptop" in low:
+        return "laptop"
+    if "joystick" in low and ("unplugged" in low or "disconnected" in low or "lost" in low):
+        return "joystick"
+    if "watchdog" in low or "loop time" in low or "overrun" in low:
+        return "code"
+    if "no robot code" in low or "code start" in low or "robot code" in low:
+        return "code"
+    if "error" in low or "exception" in low or "warning" in low:
+        return "error"
+    return "info"
+
+
+def analyze_ds(log: Log) -> tuple[dict, list[Finding]]:
+    """Driver Station side of the match: radio link, DS-reported power, PD channel currents."""
+    ev, f = {"note": log.ds_note}, []
+    ds = log.ds
+    if ds is None:
+        return ev, f
+    lo, hi = 0.0, log.end
+    idx = [i for i, t in enumerate(ds.times) if lo <= log.ds_to_log_time(t) <= hi]
+    en = [i for i in idx if ds.enabled(i)]
+    ev["enabled_seconds"] = len(en) * DT
+    if en:
+        trips = sorted(ds.trip_ms[i] for i in en)
+        losses = [ds.packet_loss[i] for i in en]
+        ev["trip_median_ms"] = statistics.median(trips)
+        ev["trip_p95_ms"] = trips[int(0.95 * (len(trips) - 1))]
+        ev["loss_mean"] = statistics.fmean(losses)
+        ev["loss_max"] = max(losses)
+        ev["wifi_db_mean"] = statistics.fmean(ds.wifi_db[i] for i in en)
+        ev["bandwidth_max_mb"] = max(ds.wifi_mb[i] for i in en)
+        ev["ds_battery_min"] = min(ds.battery[i] for i in en)
+        times = [log.ds_to_log_time(ds.times[i]) for i in en]
+        lossy = runs(times, [ds.packet_loss[i] >= 0.2 for i in en], 1.0)
+        slow = runs(times, [ds.trip_ms[i] >= 50 for i in en], 1.0)
+        if lossy:
+            f.append(Finding("WARN", "Electrical", "Radio link",
+                             f"packet loss at or above 20% for {total(lossy):.1f}s: radio placement/power, "
+                             "ethernet to the radio, or field interference.", lossy[0][0]))
+        if slow:
+            f.append(Finding("WARN", "Electrical", "Radio link",
+                             f"round-trip time at or above 50 ms for {total(slow):.1f}s (driving feels laggy).",
+                             slow[0][0]))
+        dog = runs(times, [ds.watchdog[i] for i in en], 0.1)
+        if dog:
+            f.append(Finding("WARN", "Programming", "Robot code",
+                             f"motor safety watchdog tripped {len(dog)}x ({total(dog):.1f}s) while enabled: "
+                             "loop overruns or a blocking call.", dog[0][0]))
+    # Lost comms: the robot stops answering after it had been talking to the DS.
+    first_conn = next((i for i in idx if ds.connected[i]), None)
+    if first_conn is not None:
+        times = [log.ds_to_log_time(ds.times[i]) for i in idx]
+        drops = [r for r in runs(times, [not ds.connected[i] for i in idx], 0.1)
+                 if r[0] > log.ds_to_log_time(ds.times[first_conn])]
+        ev["comms_drops"] = drops
+    # Power distribution channels.
+    if ds.pd_type != "none" and en:
+        nch = max(len(ds.pd_currents[i]) for i in en)
+        peaks, means = [], []
+        for ch in range(nch):
+            vals = [ds.pd_currents[i][ch] for i in en if ch < len(ds.pd_currents[i])]
+            peaks.append(max(vals, default=0.0))
+            means.append(statistics.fmean(vals) if vals else 0.0)
+        ev["pd_type"] = ds.pd_type
+        ev["pd_channels"] = [(ch, log.model.pd_channels.get(ch, ""), peaks[ch], means[ch]) for ch in range(nch)]
+        totals = [sum(ds.pd_currents[i]) for i in en]
+        ev["pd_total_peak"] = max(totals)
+        ev["pd_total_mean"] = statistics.fmean(totals)
+    # DS event messages, on this log's clock.
+    ev["events"] = []
+    if log.ds_events is not None:
+        prev = None
+        for t, text in log.ds_events.events:
+            kind = ds_event_kind(text)
+            lt = log.ds_to_log_time(t, log.ds_events.start_unix)
+            if kind is None or text == prev or not (lo <= lt <= hi):
+                continue
+            prev = text
+            ev["events"].append((lt, kind, text))
+        for lt, kind, text in ev["events"]:
+            if kind == "comms":
+                ev.setdefault("comms_lost_messages", []).append(lt)
+            if kind == "joystick":
+                f.append(Finding("WARN", "Field/DS", "Driver Station",
+                                 f"controller problem: {text[:120]}", lt))
+            elif kind == "laptop" and "not keeping up" in text.lower():
+                f.append(Finding("INFO", "Field/DS", "Driver Station laptop",
+                                 "DS laptop not keeping up (CPU/power plan); can cause lag.", lt))
+        # Only report one "laptop" finding.
+        seen, kept = False, []
+        for x in f:
+            if x.area == "Driver Station laptop":
+                if seen:
+                    continue
+                seen = True
+            kept.append(x)
+        f = kept
+    # Comms losses: short ones often only show up as the DS's "lost communication" message, not in
+    # the 20 ms cycle data, so count both and merge anything within 3 s of each other.
+    losses = sorted([a for a, _ in ev.get("comms_drops", [])] + ev.get("comms_lost_messages", []))
+    merged = [t for k, t in enumerate(losses) if k == 0 or t - losses[k - 1] > 3.0]
+    ev["comms_losses"] = merged
+    if merged:
+        f.append(Finding("CRITICAL", "Electrical", "Radio link",
+                         f"Driver Station lost communication with the robot {len(merged)}x (at "
+                         + ", ".join(f"{t:.1f}s" for t in merged[:6]) + "): radio power/brownout, "
+                         "loose ethernet at the radio or roboRIO, or a roboRIO/code restart.", merged[0]))
+    return ev, f
+
+
 def analyze_swerve(log: Log) -> tuple[dict, list[Finding]]:
-    s, ev, f = P.SWERVE, {}, []
+    s, ev, f = log.model.swerve, {}, []
     g = log.grid
     names = s["module_names"]
     for key_name, what in [("drive_connected", "drive motor"), ("steer_connected", "steer motor"),
@@ -719,7 +967,7 @@ def analyze_swerve(log: Log) -> tuple[dict, list[Finding]]:
 def analyze_vision(log: Log) -> tuple[dict, list[Finding]]:
     ev, f = {}, []
     g = log.grid
-    for cam in P.VISION_CAMERAS:
+    for cam in log.model.cameras:
         conn = log.get(f"Vision/{cam}/Connected")
         if conn is None:
             continue
@@ -758,7 +1006,7 @@ def analyze_alerts_and_console(log: Log) -> tuple[dict, list[Finding]]:
             if "disconnected" not in msg.lower() and t > 3.0:
                 f.append(Finding("WARN" if leaf == "errors" else "INFO", "Unknown", "Alert",
                                  f"{leaf[:-1]}: {msg}", t))
-    con = log.get(P.CONSOLE)
+    con = log.get(RM.CONSOLE)
     if con is not None:
         seen = set()
         for t, text in zip(con.times, con.values):
@@ -786,13 +1034,13 @@ def analyze_commands(log: Log) -> list:
 def run_all(log: Log):
     findings: list[Finding] = []
     results = {}
-    for name in P.MECHANISMS:
+    for name in log.model.mechanisms:
         ev, f = analyze_mechanism(log, name, log.grid)
         results[name] = ev
         findings += f
     for key, fn in [("electrical", analyze_electrical), ("shooting", analyze_shooting),
                     ("swerve", analyze_swerve), ("vision", analyze_vision),
-                    ("alerts", analyze_alerts_and_console)]:
+                    ("alerts", analyze_alerts_and_console), ("ds", analyze_ds)]:
         ev, f = fn(log)
         results[key] = ev
         findings += f
@@ -808,8 +1056,8 @@ def run_all(log: Log):
                     for k, x in enumerate(v if isinstance(v, list) else [v]) if num(x) is not None]
             if flat:
                 t, k, hot = max(flat, key=lambda p: p[2])
-                if hot >= P.TEMP_WARN_C:
-                    sev = "CRITICAL" if hot >= P.TEMP_CRIT_C else "WARN"
+                if hot >= RM.TEMP_WARN_C:
+                    sev = "CRITICAL" if hot >= RM.TEMP_CRIT_C else "WARN"
                     area = key.replace("TemperatureCelsius", "")
                     if isinstance(s.values[0], list):
                         area += f" motor index {k}"
@@ -847,7 +1095,7 @@ def match_header(log: Log) -> list[str]:
 
 
 def cmd_report(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     results, findings = run_all(log)
     out = [f"# Robot log report: {Path(args.log).name}", ""]
     out += match_header(log)
@@ -861,18 +1109,18 @@ def cmd_report(args):
     e = results["electrical"]
     out += ["", "## Electrical", ""]
     out.append(f"- Battery: min {fmt(e.get('battery_min'), 2)} V {log.stamp(e.get('battery_min_time'))}, "
-               f"mean {fmt(e.get('battery_mean'), 2)} V, below {P.BATTERY_WARN_V} V for "
+               f"mean {fmt(e.get('battery_mean'), 2)} V, below {RM.BATTERY_WARN_V} V for "
                f"{fmt(e.get('battery_low_seconds'))}s")
     out.append(f"- Brownouts: {len(e.get('brownouts', []))}; comms disables: {e.get('comms_disables', 'n/a')}")
     out.append(f"- CAN: mean {fmt(e.get('can_util_mean'))}% / max {fmt(e.get('can_util_max'))}% utilization, "
                f"bus-off {e.get('bus-off events', 'n/a')}, TX full {e.get('TX buffer full', 'n/a')}")
     out.append(f"- Loop: max {fmt(e.get('loop_max_ms'))} ms, {e.get('loop_overruns', 'n/a')} loops over "
-               f"{P.LOOP_OVERRUN_MS:.0f} ms")
+               f"{RM.LOOP_OVERRUN_MS:.0f} ms")
 
     out += ["", "## Mechanisms (enabled time only)", "",
             "| Mechanism | Active s | Mean err | p95 err | Max err | Settles (median s) | Never settled | Peak stator A | Max temp C | Stalls |",
             "|---|---|---|---|---|---|---|---|---|---|"]
-    for name, m in P.MECHANISMS.items():
+    for name, m in log.model.mechanisms.items():
         r = results[name]
         if not r.get("present"):
             out.append(f"| {m['label']} | not in log | | | | | | | | |")
@@ -884,8 +1132,13 @@ def cmd_report(args):
             f"| {len(r.get('unsettled', []))} | {fmt(r.get('peak_stator'))} | {fmt(r.get('max_temp'))} "
             f"| {len(r.get('stalls', []))} |")
     out.append("")
-    out.append("Errors are in each mechanism's units (deg, RPM, or V). Setpoints by applied state:")
-    for name, m in P.MECHANISMS.items():
+    out.append("Errors are in each mechanism's units (deg, RPM, or V). Tolerances, current limits, and "
+               "soft limits come from Constants.java on the checked-out branch.")
+    for note in log.model.notes:
+        out.append(f"- Note: {note}")
+    out.append("")
+    out.append("Setpoints by applied state:")
+    for name, m in log.model.mechanisms.items():
         r = results[name]
         if r.get("setpoints_by_state"):
             pairs = ", ".join(f"{k}={v}" for k, v in r["setpoints_by_state"].items())
@@ -904,14 +1157,43 @@ def cmd_report(args):
                    f"{fmt(s.get('median_time_to_ready'), 2)} s; {s.get('never_ready_attempts')} never ready")
         for k, v in s.get("blockers_seconds", {}).items():
             out.append(f"  - not ready because {k}: {v:.1f}s")
-    for t, v in s.get("homing_results", []):
-        out.append(f"- Hood homing {'succeeded' if v else 'FAILED'} {log.stamp(t)}")
+    for t, v, who in s.get("homing_results", []):
+        out.append(f"- {who} homing {'succeeded' if v else 'FAILED'} {log.stamp(t)}")
 
     out += ["", "## States (desired vs confirmed)", "",
             "| State | Desired changes | Unconfirmed s | Longest unconfirmed |", "|---|---|---|---|"]
     for name, changes, mism, longest in results["states"]:
         lng = f"{longest[1] - longest[0]:.1f}s at {longest[0]:.1f}s" if longest else "-"
         out.append(f"| {name} | {changes} | {mism:.1f} | {lng} |")
+
+    d = results["ds"]
+    out += ["", "## Driver Station", ""]
+    if log.ds is None:
+        out.append("- " + (d.get("note") or "No DS log next to this log (see the match log workflow)."))
+    else:
+        out.append(f"- {d['note']}; enabled per DS {fmt(d.get('enabled_seconds'))}s")
+        if "trip_median_ms" in d:
+            out.append(f"- Round trip: median {fmt(d['trip_median_ms'])} ms, 95% {fmt(d['trip_p95_ms'])} ms; "
+                       f"packet loss mean {fmt(d['loss_mean'] * 100)}%, max {fmt(d['loss_max'] * 100)}%")
+            out.append(f"- Wi-Fi {fmt(d['wifi_db_mean'])} dB mean, bandwidth peak {fmt(d['bandwidth_max_mb'], 2)} Mb/s; "
+                       f"DS-reported battery min {fmt(d['ds_battery_min'], 2)} V")
+        losses = d.get("comms_losses", [])
+        out.append(f"- Comms losses: {len(losses)}" + (" (at " + ", ".join(f"{t:.1f}s" for t in losses[:8]) + ")" if losses else ""))
+        if d.get("pd_channels"):
+            top = [c for c in sorted(d["pd_channels"], key=lambda c: -c[2]) if c[2] >= 0.5][:8]
+            out.append(f"- Power distribution ({d['pd_type']}): total peak {fmt(d['pd_total_peak'])} A, mean "
+                       f"{fmt(d['pd_total_mean'])} A while enabled. Highest channels:")
+            out.append("")
+            out.append("| Channel | Device | Peak A | Mean A |")
+            out.append("|---|---|---|---|")
+            for ch, name, peak, mean in top:
+                out.append(f"| {ch} | {name or '(unmapped)'} | {peak:.1f} | {mean:.1f} |")
+            out.append("")
+        notable = [e for e in d.get("events", []) if e[1] != "info"]
+        if notable:
+            out.append("- DS messages:")
+            for t, kind, text in notable[:25]:
+                out.append(f"  - {t:.1f}s [{kind}] {text[:160]}")
 
     sw = results["swerve"]
     out += ["", "## Swerve", ""]
@@ -963,20 +1245,24 @@ CAUSE_FILES = {
 
 
 def cmd_diagnose(args):
-    log = Log(args.log, args.outputs)
-    names = [args.mech] if args.mech else list(P.MECHANISMS)
+    log = Log(args.log, args.outputs, args.ds)
+    mechs = log.model.mechanisms
+    if not mechs:
+        sys.exit("No mechanisms found in this log (no RealOutputs/<Subsystem>/<Mech>/Setpoint* keys).")
+    names = [args.mech] if args.mech else list(mechs)
     for n in names:
-        if n not in P.MECHANISMS:
-            sys.exit(f"Unknown mechanism '{n}'. Choose from: {', '.join(P.MECHANISMS)}")
+        if n not in mechs:
+            sys.exit(f"Unknown mechanism '{n}'. This log has: {', '.join(mechs)}")
     grid = window_grid(log, args.start, args.end)
     if not grid:
         sys.exit("No enabled time in that window. (Use timeline to find when the robot was enabled.)")
     win = f"{grid[0]:.1f}s-{grid[-1]:.1f}s" if (args.start is not None or args.end is not None) else "all enabled time"
     e_ev, e_f = analyze_electrical(log)
+    e_f += analyze_ds(log)[1]
     e_f = [x for x in e_f if x.time is None or grid[0] <= x.time <= grid[-1]]
 
     for name in names:
-        m = P.MECHANISMS[name]
+        m = log.model.mechanisms[name]
         ev, f = analyze_mechanism(log, name, grid)
         if not ev.get("present"):
             print(f"## {m['label']}: no data in this log\n")
@@ -1026,7 +1312,7 @@ def cmd_diagnose(args):
         if ev["disconnects"]:
             add("Electrical", 5, "controller dropped off CAN during the window")
         for area, pts, why in [("Battery", 3, "battery sag"), ("roboRIO", 3, "brownout"),
-                               ("CAN bus", 2, "CAN bus errors")]:
+                               ("CAN bus", 2, "CAN bus errors"), ("Radio link", 3, "radio/DS link trouble")]:
             hits = [x for x in e_f if x.area == area]
             if any(near(x.time) for x in hits):
                 add("Electrical", pts, f"{why} when the problem started")
@@ -1040,7 +1326,7 @@ def cmd_diagnose(args):
         if any("unevenly" in x.message for x in f):
             add("Mechanical", 3, "motors sharing load unevenly")
             add("Programming", 1, "...or a follower configured to fight the leader")
-        if (ev.get("max_temp") or 0) >= P.TEMP_WARN_C:
+        if (ev.get("max_temp") or 0) >= RM.TEMP_WARN_C:
             add("Mechanical", 1, "motor ran hot (sustained load)")
         if any("beyond the soft limits" in x.message for x in f):
             add("Mechanical", 2, "position past the soft limits (zero slipped / not homed)")
@@ -1115,9 +1401,9 @@ def cmd_compare(args):
     print()
     print("| Mechanism | Setpoints by state (original) | Setpoints by state (replay) |")
     print("|---|---|---|")
-    for name, m in P.MECHANISMS.items():
-        a = r_res[name].get("setpoints_by_state", {})
-        b = n_res[name].get("setpoints_by_state", {})
+    for name, m in {**real.model.mechanisms, **replay.model.mechanisms}.items():
+        a = r_res.get(name, {}).get("setpoints_by_state", {})
+        b = n_res.get(name, {}).get("setpoints_by_state", {})
         if a or b:
             print(f"| {m['label']} | {a} | {b} |")
     rs, ns = r_res["shooting"], n_res["shooting"]
@@ -1135,9 +1421,9 @@ def cmd_compare(args):
 
 
 def cmd_timeline(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     events = []
-    for key, label in [(P.DS_ENABLED[0], "Enabled"), (P.DS_AUTO[0], "Autonomous")]:
+    for key, label in [(RM.DS_ENABLED[0], "Enabled"), (RM.DS_AUTO[0], "Autonomous")]:
         s = log.get(key)
         if s is not None:
             prev = None
@@ -1173,10 +1459,15 @@ def cmd_timeline(args):
             s = log.raw.series(key)
             for t, v in zip(s.times, s.values):
                 events.append((t, "event", f"{k} = {v}"))
-    bo = log.get(P.BROWNOUT)
+    bo = log.get(RM.BROWNOUT)
     if bo is not None:
         for a, b in intervals_where(bo, bool, log.end):
             events.append((a, "fault", f"BROWNOUT for {b - a:.2f}s"))
+    ds_ev, _ = analyze_ds(log)
+    for t, kind, text in ds_ev.get("events", []):
+        events.append((t, "ds", f"[{kind}] {text[:200]}"))
+    for a, b in ds_ev.get("comms_drops", []):
+        events.append((a, "fault", f"DS lost comms for {b - a:.2f}s"))
     events.sort(key=lambda e: e[0])
     kinds = set(args.only.split(",")) if args.only else None
     for t, kind, text in events:
@@ -1192,7 +1483,7 @@ def cmd_timeline(args):
 
 
 def cmd_series(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     series = []
     for key in args.keys:
         s = log.get(key)
@@ -1225,7 +1516,7 @@ def cmd_series(args):
 
 
 def cmd_info(args):
-    log = Log(args.log, args.outputs)
+    log = Log(args.log, args.outputs, args.ds)
     print(f"# {Path(args.log).name}")
     print("\n".join(match_header(log)))
     print(f"- Enabled periods: " + ", ".join(f"{a:.1f}-{b:.1f}s" for a, b in log.enabled_intervals))
@@ -1258,12 +1549,241 @@ def cmd_find(args):
         print("No .wpilog files found in: " + ", ".join(str(r) for r in roots))
 
 
+def cmd_ds(args):
+    """Summary of a DS log on its own (no AdvantageKit log needed)."""
+    import datetime
+    ds = read_dslog(args.dslog)
+    start = datetime.datetime.fromtimestamp(ds.start_unix).strftime("%Y-%m-%d %H:%M:%S")
+    print(f"# {Path(args.dslog).name}")
+    print()
+    print(f"- Started {start} (this computer's time zone), {ds.duration:.0f}s long")
+    modes: dict[str, float] = {}
+    for i in range(len(ds.times)):
+        modes[ds.mode(i)] = modes.get(ds.mode(i), 0.0) + DT
+    print("- Time by mode: " + ", ".join(f"{k} {v:.0f}s" for k, v in modes.items()))
+    en = [i for i in range(len(ds.times)) if ds.enabled(i)]
+    if en:
+        print(f"- While enabled: trip median {statistics.median(ds.trip_ms[i] for i in en):.1f} ms, "
+              f"packet loss max {max(ds.packet_loss[i] for i in en) * 100:.0f}%, battery min "
+              f"{min(ds.battery[i] for i in en):.2f} V, brownout cycles {sum(ds.brownout[i] for i in en)}, "
+              f"watchdog cycles {sum(ds.watchdog[i] for i in en)}")
+    first = next((i for i, c in enumerate(ds.connected) if c), None)
+    if first is not None:
+        drops = [r for r in runs(ds.times, [not c for c in ds.connected], 0.1) if r[0] > ds.times[first]]
+        print(f"- No-reply periods after first connecting: {len(drops)}"
+              + (" (" + ", ".join(f"{a:.1f}-{b:.1f}s" for a, b in drops[:8]) + ")" if drops else ""))
+    ev_path = Path(args.dslog).with_suffix(".dsevents")
+    if ev_path.is_file():
+        evs = read_dsevents(ev_path)
+        print()
+        print("Messages (routine ones hidden):")
+        prev = None
+        for t, text in evs.events:
+            kind = ds_event_kind(text)
+            if kind is None or text == prev:
+                continue
+            prev = text
+            print(f"  {t:8.1f}s [{kind}] {text[:180]}")
+
+
+def find_usb_roots() -> list[Path]:
+    """Mounted drives that look like the robot's log stick (a logs/ or dslogs/ folder at the root)."""
+    if platform.system() == "Windows":
+        roots = [Path(f"{letter}:/") for letter in string.ascii_uppercase[3:]]  # D: and up
+    elif platform.system() == "Darwin":
+        roots = list(Path("/Volumes").glob("*"))
+    else:
+        roots = list(Path("/media").glob("*/*")) + list(Path("/run/media").glob("*/*"))
+    found = []
+    for r in roots:
+        try:
+            if (r / "logs").is_dir() or (r / "dslogs").is_dir():
+                found.append(r)
+        except OSError:
+            continue  # empty card reader, locked drive
+    return found
+
+
+def _copy_if_new(src: Path, dest: Path) -> bool:
+    """Copies src to dest unless an identical-size copy is already there. Returns True if copied."""
+    if dest.exists() and dest.stat().st_size == src.stat().st_size:
+        return False
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+    return True
+
+
+def cmd_ingest(args):
+    if args.usb:
+        usb = Path(args.usb)
+    else:
+        roots = find_usb_roots()
+        if not roots:
+            sys.exit("No log stick found (looked for a drive with a logs/ or dslogs/ folder). "
+                     "Plug it in or pass its path, e.g. ingest E:/")
+        if len(roots) > 1:
+            sys.exit("Several possible log sticks: " + ", ".join(map(str, roots)) + ". Pass one.")
+        usb = roots[0]
+    dest = Path(args.dest) if args.dest else REPO_ROOT / "logs" / "matches"
+    akit = sorted(p for p in (usb / "logs").glob("*.wpilog") if not p.stem.endswith("_sim")) \
+        if (usb / "logs").is_dir() else []
+    ds_dir = usb / "dslogs"
+    dslogs = sorted(ds_dir.glob("*.dslog")) if ds_dir.is_dir() else []
+    print(f"Stick {usb}: {len(akit)} AdvantageKit logs, {len(dslogs)} DS logs -> {dest}")
+
+    # Time window of every DS log, read once.
+    ds_windows = ds_windows_of(dslogs)
+    for p in sorted(set(dslogs) - {w[0] for w in ds_windows}):
+        print(f"  skipping unreadable DS log {p.name}")
+    used_ds: set = set()
+    rows, new_logs = [], []
+    for p in akit:
+        try:
+            raw = WpiLog.open(p)
+        except (ValueError, OSError) as e:
+            print(f"  skipping unreadable {p.name}: {e}")
+            continue
+        folder = dest / p.stem
+        copied = _copy_if_new(p, folder / p.name)
+        enabled = next((s for s in map(raw.series, RM.DS_ENABLED) if s is not None), None)
+        en_s = sum(b - a for a, b in intervals_where(enabled, bool, raw.duration)) if enabled else 0.0
+        epoch0 = akit_epoch_offset(raw)
+        paired = best_ds_match(epoch0, epoch0 + raw.duration, ds_windows) if epoch0 is not None else None
+        if paired is not None:
+            used_ds.add(paired)
+            copied |= _copy_if_new(paired, folder / paired.name)
+            ev = paired.with_suffix(".dsevents")
+            if ev.is_file():
+                _copy_if_new(ev, folder / ev.name)
+        rows.append((p.stem, raw.duration, en_s, paired.name if paired else "-", copied))
+        if copied:
+            new_logs.append((folder / p.name, en_s))
+    # DS logs with no AdvantageKit log (robot code not running, stick out, etc.) are kept too.
+    for dp, _, _ in ds_windows:
+        if dp not in used_ds:
+            _copy_if_new(dp, dest / "_ds_only" / dp.name)
+            ev = dp.with_suffix(".dsevents")
+            if ev.is_file():
+                _copy_if_new(ev, dest / "_ds_only" / ev.name)
+
+    print("\n| Log | Length s | Enabled s | DS log | New |\n|---|---|---|---|---|")
+    for name, dur, en_s, ds_name, copied in rows:
+        print(f"| {name} | {dur:.0f} | {en_s:.0f} | {ds_name} | {'yes' if copied else ''} |")
+
+    if args.report:
+        todo = [(lp, en) for lp, en in new_logs if en >= args.min_enabled] if not args.all_reports else \
+            [(dest / r[0] / f"{r[0]}.wpilog", r[2]) for r in rows if r[2] >= args.min_enabled]
+        for lp, _ in todo:
+            out = lp.with_name("report.md")
+            cmd_report(argparse.Namespace(log=str(lp), out=str(out), outputs="auto", ds=None))
+        skipped = len([1 for _, en in new_logs if en < args.min_enabled])
+        if skipped:
+            print(f"(No report for {skipped} new log(s) with under {args.min_enabled:.0f}s enabled: "
+                  "pit restarts and code redeploys.)")
+        write_index(dest)
+
+
+def _git_bash() -> str | None:
+    if platform.system() != "Windows":
+        return shutil.which("bash")
+    for base in (os.environ.get("ProgramFiles", r"C:\Program Files"),
+                 os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")):
+        p = Path(base) / "Git" / "bin" / "bash.exe"
+        if p.is_file():
+            return str(p)
+    return None  # not WSL's bash.exe: it can't see Windows paths the same way
+
+
+def cmd_simtest(args):
+    """Runs the match-log workflow end to end on a simulator log, with a fake USB stick."""
+    logs_dir = REPO_ROOT / "logs"
+    if args.log:
+        sim_log = Path(args.log)
+    else:
+        found = sorted((p for p in logs_dir.glob("*.wpilog") if not p.stem.endswith("_sim")),
+                       key=lambda p: p.stat().st_mtime) if logs_dir.is_dir() else []
+        if not found:
+            sys.exit("No simulator log in logs/. Run the simulator first (docs/LOG_ANALYSIS_WITH_CLAUDE.md).")
+        sim_log = found[-1]
+    work = logs_dir / "simtest"
+    if work.resolve() in sim_log.resolve().parents:
+        # The log is a copy from an earlier simtest, which is about to be deleted: keep it in logs/.
+        kept = logs_dir / sim_log.name
+        if not kept.exists():
+            shutil.copy2(sim_log, kept)
+        sim_log = kept
+    if work.exists():
+        shutil.rmtree(work)
+    stick, dest = work / "stick", work / "matches"
+    (stick / "logs").mkdir(parents=True)
+    shutil.copy2(sim_log, stick / "logs" / sim_log.name)
+    print(f"1. Fake stick at {stick} with {sim_log.name}")
+
+    bash = _git_bash()
+    script = REPO_ROOT / "tools" / "collect-ds-logs.sh"
+    if bash and script.is_file():
+        print("2. Running tools/collect-ds-logs.sh on it (as on the Driver Station laptop)")
+        r = subprocess.run([bash, str(script), str(stick)], capture_output=True, text=True)
+        print("   " + "\n   ".join((r.stdout + r.stderr).strip().splitlines()[:8]))
+    else:
+        print("2. Skipped the DS collector (no Git Bash/bash found).")
+
+    print("3. Ingesting the stick")
+    cmd_ingest(argparse.Namespace(usb=str(stick), dest=str(dest), report=True, all_reports=True,
+                                  min_enabled=0.0))
+
+    match = dest / sim_log.stem
+    log = Log(str(match / sim_log.name))
+    ok = lambda b: "PASS" if b else "----"
+    mechs = ", ".join(log.model.mechanisms) or "none"
+    print("\nChecklist")
+    print(f"  {ok(len(log.raw.entries) > 10)}  log decoded: {len(log.raw.entries)} keys, {log.end:.0f}s long")
+    print(f"  {ok(log.enabled_time() > 0)}  enabled time: {log.enabled_time():.0f}s "
+          "(enable the robot in the sim for this)")
+    print(f"  {ok(bool(log.model.mechanisms))}  mechanisms found from the log: {mechs}")
+    print(f"  {ok(not log.model.notes)}  Constants.java read for tolerances/limits"
+          + ("" if not log.model.notes else ": " + "; ".join(log.model.notes)))
+    print(f"  {ok(log.ds is not None)}  Driver Station log paired: "
+          + (log.ds_note or "none (needs the FRC Driver Station app connected to the sim)"))
+    print(f"  {ok((match / 'report.md').is_file())}  report written: {match / 'report.md'}")
+    print(f"  {ok((dest / 'INDEX.md').is_file())}  index written: {dest / 'INDEX.md'}")
+    print("\nIn sim, battery/current/temperature values are fake and mechanisms with 0 setpoints "
+          "won't move, so electrical/mechanical findings don't mean anything. This checks the plumbing.")
+
+
+def write_index(dest: Path):
+    """INDEX.md: one row per ingested match with its finding counts, newest first."""
+    if not dest.is_dir():
+        print(f"Nothing ingested into {dest} yet; no index written.")
+        return
+    rows = []
+    for folder in sorted((d for d in dest.iterdir() if d.is_dir() and not d.name.startswith("_")),
+                         reverse=True):
+        rep = folder / "report.md"
+        if not rep.is_file():
+            continue
+        text = rep.read_text(encoding="utf-8")
+        crit, warn = text.count("**CRITICAL**"), text.count("**WARN**")
+        first = next((ln[2:] for ln in text.splitlines() if ln.startswith("- **CRITICAL**")
+                      or ln.startswith("- **WARN**")), "")
+        has_ds = "Driver Station log:" in text
+        rows.append(f"| [{folder.name}]({folder.name}/report.md) | {crit} | {warn} | "
+                    f"{'yes' if has_ds else 'no'} | {first[:120]} |")
+    lines = ["# Match log index", "", "| Match | Critical | Warn | DS log | Top finding |",
+             "|---|---|---|---|---|"] + rows
+    (dest / "INDEX.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    print(f"Index written to {dest / 'INDEX.md'}")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     def add_log(p):
         p.add_argument("log")
+        p.add_argument("--ds", help="Driver Station .dslog to pair with (default: find one next to "
+                                    "the log by time; 'none' to skip)")
         p.add_argument("--outputs", choices=["auto", "real", "replay"], default="auto",
                        help="which decisions to analyze in a replay (_sim) log: the original "
                             "robot's (real) or the current code's (replay). auto = replay if present")
@@ -1277,6 +1797,22 @@ def main(argv=None):
     p.add_argument("--limit", type=int, default=15)
     p.set_defaults(fn=cmd_find)
 
+    p = sub.add_parser("ingest", help="copy logs off the robot's USB stick, pair DS logs, write reports")
+    p.add_argument("usb", nargs="?", help="stick path, e.g. E:/ (default: find it)")
+    p.add_argument("--dest", help="where to put matches (default: <repo>/logs/matches)")
+    p.add_argument("--report", action="store_true", help="write report.md for each new match + INDEX.md")
+    p.add_argument("--all-reports", action="store_true", help="with --report: redo every match, not just new")
+    p.add_argument("--min-enabled", type=float, default=5.0, help="skip reports for logs enabled less than this (s)")
+    p.set_defaults(fn=cmd_ingest)
+
+    p = sub.add_parser("simtest", help="test the whole log workflow on a simulator log")
+    p.add_argument("log", nargs="?", help="sim log (default: newest in logs/)")
+    p.set_defaults(fn=cmd_simtest)
+
+    p = sub.add_parser("ds", help="summarize a Driver Station .dslog (+ .dsevents) on its own")
+    p.add_argument("dslog")
+    p.set_defaults(fn=cmd_ds)
+
     p = sub.add_parser("info", help="match info, enabled periods, and keys")
     add_log(p)
     p.add_argument("--prefix", help="only keys starting with this, e.g. Shooter/")
@@ -1289,14 +1825,15 @@ def main(argv=None):
 
     p = sub.add_parser("diagnose", help="evidence and ranked causes for one mechanism (or all)")
     add_log(p)
-    p.add_argument("mech", nargs="?", help="one of: " + ", ".join(P.MECHANISMS))
+    p.add_argument("mech", nargs="?", help="mechanism name from the log, e.g. hood, drum, arm, floor "
+                                          "(omit to check every mechanism)")
     window(p)
     p.set_defaults(fn=cmd_diagnose)
 
     p = sub.add_parser("timeline", help="mode, state, command, and fault events in order")
     add_log(p)
     window(p)
-    p.add_argument("--only", help="comma list of kinds: mode,state,command,fault,event")
+    p.add_argument("--only", help="comma list of kinds: mode,state,command,fault,event,ds")
     p.add_argument("--filter", help="only events containing this text")
     p.set_defaults(fn=cmd_timeline)
 

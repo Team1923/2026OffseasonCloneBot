@@ -75,6 +75,39 @@ and must be checked before the new robot is enabled (TODO: retune swerve to get 
 This total does not include the swerve drive motors or an actuator for the extendable
 hopper.
 
+## Power distribution channels
+
+Fill this in from the wiring. Log reports read this table to name the current on each REV PDH
+channel (from the Driver Station log), so "channel 10: 58 A" becomes "Drum leader: 58 A".
+Channels 20-23 are the PDH's small switchable/low-current channels.
+
+| PDH channel | Device | Breaker (A) |
+| --- | --- | --- |
+| 0 |  |  |
+| 1 |  |  |
+| 2 |  |  |
+| 3 |  |  |
+| 4 |  |  |
+| 5 |  |  |
+| 6 |  |  |
+| 7 |  |  |
+| 8 |  |  |
+| 9 |  |  |
+| 10 |  |  |
+| 11 |  |  |
+| 12 |  |  |
+| 13 |  |  |
+| 14 |  |  |
+| 15 |  |  |
+| 16 |  |  |
+| 17 |  |  |
+| 18 |  |  |
+| 19 |  |  |
+| 20 |  |  |
+| 21 |  |  |
+| 22 |  |  |
+| 23 |  |  |
+
 ## Coordination goals
 
 - Intake deploys and collects while the hopper and tunnel accept game pieces.
