@@ -177,7 +177,9 @@ public final class Constants {
   }
 
   public static final class RollersConstants {
-    public static final int MOTOR_ID = 17; // TODO: placeholder ID, unique so sim devices don't collide
+    public static final int MOTOR_ID = 17; // TODO: verify against the robot CAN map
+    public static final int FEEDER_MOTOR_ONE_ID = 18; // TODO: verify against the robot CAN map
+    public static final int FEEDER_MOTOR_TWO_ID = 19; // TODO: verify against the robot CAN map
     public static final int BEAM_BREAK_DIO_PORT = 0; // TODO: verify the real DIO port on the robot
     // TODO: verify polarity on the real sensor. true = the DIO reads false (low) when a piece breaks
     // the beam (typical for beam breaks); flip to false if the sensor reads high with a piece.
@@ -185,35 +187,42 @@ public final class Constants {
     // Both-edge debounce so a ball flickering at the beam edge doesn't chatter the floor roller.
     public static final double BEAM_BREAK_DEBOUNCE_SECONDS = 0.05; // TODO: tune
     public static final double GEAR_RATIO = 3.0; // motor rotations per roller rotation
+    public static final double FEEDER_GEAR_RATIO = 5.0 / 2.0; // motor rotations per feeder rotation
     public static final double RPM_TOLERANCE = 100.0; // TODO: tune
 
     // Simulation-only mechanism inertia. TODO: estimate from CAD
     public static final double SIM_MOI_KG_METERS_SQUARED = 0.002;
 
-    public static final TalonFXConfiguration MOTOR_CONFIG =
-        new TalonFXConfiguration()
-            // Were 0 A with the limits enabled, which allowed no output at all. TODO: confirm.
-            .withCurrentLimits(
-                new CurrentLimitsConfigs()
-                    .withStatorCurrentLimitEnable(true)
-                    .withSupplyCurrentLimitEnable(true)
-                    // A 0 A limit is a real limit in Phoenix and leaves the motor with no torque.
-                    .withStatorCurrentLimit(60) // TODO: tune
-                    .withSupplyCurrentLimit(40))
-            .withFeedback(new FeedbackConfigs().withSensorToMechanismRatio(GEAR_RATIO))
-            .withMotorOutput(
-                new MotorOutputConfigs()
-                    .withInverted(InvertedValue.Clockwise_Positive)
-                    .withNeutralMode(NeutralModeValue.Coast))
-            // Starting points only. Velocity gains are per MECHANISM rot/s, so the per-motor values
-            // (kV 0.12 = 12 V / 100 rot/s Kraken X60 free speed, kP 0.10) are scaled by GEAR_RATIO.
-            // kS is higher than a flywheel because this drags game pieces.
-            // TODO: tune kS, then kV, then kP.
-            .withSlot0(
-                new Slot0Configs()
-                    .withKS(0.25)
-                    .withKV(0.12 * GEAR_RATIO)
-                    .withKP(0.10 * GEAR_RATIO));
+    public static final TalonFXConfiguration MOTOR_CONFIG = motorConfig(GEAR_RATIO);
+    // Feeder motors run as followers of the floor roller, so their slot gains and inversion are
+    // ignored (direction comes from MotorAlignmentValue in RollersIO); the gear ratio only scales
+    // their reported position/velocity.
+    public static final TalonFXConfiguration FEEDER_MOTOR_CONFIG = motorConfig(FEEDER_GEAR_RATIO);
+
+    private static TalonFXConfiguration motorConfig(double gearRatio) {
+      return new TalonFXConfiguration()
+          // Were 0 A with the limits enabled, which allowed no output at all. TODO: confirm.
+          .withCurrentLimits(
+              new CurrentLimitsConfigs()
+                  .withStatorCurrentLimitEnable(true)
+                  .withSupplyCurrentLimitEnable(true)
+                  .withStatorCurrentLimit(60)
+                  .withSupplyCurrentLimit(40))
+          .withFeedback(new FeedbackConfigs().withSensorToMechanismRatio(gearRatio))
+          .withMotorOutput(
+              new MotorOutputConfigs()
+                  .withInverted(InvertedValue.Clockwise_Positive)
+                  .withNeutralMode(NeutralModeValue.Coast))
+          // Starting points only. Velocity gains are per MECHANISM rot/s, so the per-motor values
+          // (kV 0.12 = 12 V / 100 rot/s Kraken X60 free speed, kP 0.10) are scaled by the gear
+          // ratio. kS is higher than a flywheel because this drags game pieces.
+          // TODO: tune kS, then kV, then kP.
+          .withSlot0(
+              new Slot0Configs()
+                  .withKS(0.25)
+                  .withKV(0.12 * gearRatio)
+                  .withKP(0.10 * gearRatio));
+    }
 
     private RollersConstants() {}
   }
@@ -231,8 +240,6 @@ public final class Constants {
     // Gear ratios are motor rotations per mechanism rotation.
     public static final double HOOD_GEAR_RATIO = 5.0 / 2.0;
     public static final double DRUM_GEAR_RATIO = 13.0 / 9.0;
-    // TODO: the two feed roller motors are not in code yet; use this when they are added.
-    public static final double FEED_GEAR_RATIO = 5.0 / 2.0;
     // Software limits. 0 is the homed hard stop.
     public static final double HOOD_MIN_DEGREES = 0.0;
     public static final double HOOD_MAX_DEGREES = 37.0;
