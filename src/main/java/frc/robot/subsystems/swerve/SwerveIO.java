@@ -9,6 +9,7 @@ import com.ctre.phoenix6.swerve.SwerveModuleConstants;
 import com.ctre.phoenix6.swerve.SwerveRequest;
 import edu.wpi.first.math.Matrix;
 import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.filter.Debouncer.DebounceType;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
 import edu.wpi.first.math.kinematics.ChassisSpeeds;
@@ -173,7 +174,7 @@ public interface SwerveIO {
    */
   class Real extends TunerSwerveDrivetrain implements SwerveIO {
     private final StatusSignal<AngularVelocity> gyroYawVelocity;
-    private final Debouncer gyroConnectedDebounce = new Debouncer(0.5);
+    private final Debouncer gyroConnectedDebounce = new Debouncer(0.5, DebounceType.kFalling);
 
     private final List<MotorSignals> driveSignals = new ArrayList<>();
     private final List<MotorSignals> steerSignals = new ArrayList<>();
@@ -227,9 +228,9 @@ public interface SwerveIO {
         driveSignals.add(new MotorSignals(module.getDriveMotor()));
         steerSignals.add(new MotorSignals(module.getSteerMotor()));
         encoderAbsolutePositions.add(module.getEncoder().getAbsolutePosition());
-        driveConnectedDebounce[i] = new Debouncer(0.5);
-        steerConnectedDebounce[i] = new Debouncer(0.5);
-        encoderConnectedDebounce[i] = new Debouncer(0.5);
+        driveConnectedDebounce[i] = new Debouncer(0.5, DebounceType.kFalling);
+        steerConnectedDebounce[i] = new Debouncer(0.5, DebounceType.kFalling);
+        encoderConnectedDebounce[i] = new Debouncer(0.5, DebounceType.kFalling);
       }
     }
 

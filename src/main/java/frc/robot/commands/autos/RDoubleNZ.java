@@ -4,26 +4,27 @@
 
 package frc.robot.commands.autos;
 
-import edu.wpi.first.wpilibj2.command.ParallelDeadlineGroup;
+import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
-import edu.wpi.first.wpilibj2.command.WaitCommand;
+import frc.robot.commands.RobotCommands;
 import frc.robot.lib.auto.AutoHelpers;
 
 /**
- * Right-side, two-game-piece auto: drives from the trench to the right shot, then runs the
- * second-pass path back out to the trench and back to the same shooting spot. Built from
- * {@code R_TrenchToR_Shoot.traj} and {@code R_Trench2ndPass.traj} in deploy/choreo.
+ * Right-side shoot-on-the-move auto: three Choreo paths whose SOTM_PREP / SOTM / SOTM_END / INTAKE
+ * event markers drive intaking and scoring. The shooter setpoints are held across path boundaries
+ * by {@link RobotCommands#autoShooterCommand()}.
  */
 public class RDoubleNZ extends SequentialCommandGroup {
+  /** First trajectory followed; the auto selector resets odometry to its start pose. */
+  public static final String FIRST_TRAJECTORY = "SOTM_R_TrenchToR_Shoot";
+
   public RDoubleNZ() {
     addCommands(
-        AutoHelpers.commandPathFromCatchesErrors(AutoHelpers.choreoToPathPlannerConverter("R_TrenchToR_Shoot")),
-          new ParallelDeadlineGroup(
-            new WaitCommand(5)
-            // new ShootCommand() 
-          ),
-        AutoHelpers.commandPathFromCatchesErrors(AutoHelpers.choreoToPathPlannerConverter("R_Trench2ndPass"))
-        // new ShootCommand()
-    );
+        Commands.deadline(
+            Commands.sequence(
+                AutoHelpers.followChoreo(FIRST_TRAJECTORY),
+                AutoHelpers.followChoreo("SOTM_R_Shoot2ndPass"),
+                AutoHelpers.followChoreo("SOTM_R_Shoot3rdPass")),
+            RobotCommands.autoShooterCommand()));
   }
 }

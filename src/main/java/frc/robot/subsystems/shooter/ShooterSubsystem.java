@@ -5,6 +5,7 @@
 package frc.robot.subsystems.shooter;
 
 import com.ctre.phoenix6.controls.MotionMagicVoltage;
+import com.ctre.phoenix6.controls.NeutralOut;
 import com.ctre.phoenix6.controls.VelocityVoltage;
 import com.ctre.phoenix6.controls.VoltageOut;
 import edu.wpi.first.math.filter.Debouncer;
@@ -18,6 +19,7 @@ import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.ShooterConstants;
 import frc.robot.StateHandler;
+import java.util.function.BooleanSupplier;
 import org.littletonrobotics.junction.Logger;
 
 /** Controls the four-motor shooter drum and adjustable hood. */
@@ -40,6 +42,7 @@ public final class ShooterSubsystem extends SubsystemBase {
   public enum ShooterHoodState {
     STOWED(degreesRequest(0)),
     SHOOTING(degreesRequest(0)), // TODO: replace with shot model
+    SHOOTING_ON_MOVE(degreesRequest(0)),
     FERRY(degreesRequest(0)); // TODO: tune
 
     public final MotionMagicVoltage request;
@@ -58,6 +61,7 @@ public final class ShooterSubsystem extends SubsystemBase {
     IDLE(rpmRequest(0)),
     WARMING(rpmRequest(0)), // TODO: tune - slow velocity of wheels always running, try ~1500 RPM
     SHOOTING(rpmRequest(0)), // TODO: replace with shot model
+    SHOOTING_ON_MOVE(rpmRequest(0)),
     FERRY(rpmRequest(0)); // TODO: tune
 
     public final VelocityVoltage request;
@@ -75,6 +79,9 @@ public final class ShooterSubsystem extends SubsystemBase {
     "leader", "follower one", "follower two", "follower three"
   };
 
+  /** Lets the drum spin down in its Coast neutral mode instead of braking it to 0 RPM. */
+  private static final NeutralOut DRUM_NEUTRAL_REQUEST = new NeutralOut();
+
   private final StateHandler stateHandler = StateHandler.getInstance();
   private final ShooterIO io;
   private final ShooterIO.ShooterIOInputs inputs = new ShooterIO.ShooterIOInputs();
@@ -82,6 +89,11 @@ public final class ShooterSubsystem extends SubsystemBase {
   private final Alert hoodDisconnectedAlert =
       new Alert("Shooter hood motor disconnected", AlertType.kError);
   private final Alert[] drumDisconnectedAlerts = new Alert[ShooterIO.DRUM_MOTOR_COUNT];
+  private final Alert hoodZeroLostAlert =
+      new Alert("Shooter hood motor rebooted and lost its zero; re-home the hood", AlertType.kError);
+
+  /** Whether the hood encoder holds a zero from homing that a motor reboot has not wiped. */
+  private boolean hoodHomed = false;
 
   private ShooterSubsystem(ShooterIO io) {
     this.io = io;
@@ -98,6 +110,12 @@ public final class ShooterSubsystem extends SubsystemBase {
     Logger.processInputs("Shooter", inputs);
 
     hoodDisconnectedAlert.set(!inputs.hoodConnected);
+    if (inputs.hoodMotorReset && hoodHomed) {
+      // A rebooted TalonFX reads 0 wherever the hood sits, so every hood angle is now offset.
+      hoodHomed = false;
+      hoodZeroLostAlert.set(true);
+      Logger.recordOutput("Shooter/Hood/Homed", false);
+    }
     for (int i = 0; i < ShooterIO.DRUM_MOTOR_COUNT; i++) {
       drumDisconnectedAlerts[i].set(!inputs.drumConnected[i]);
     }
@@ -122,7 +140,11 @@ public final class ShooterSubsystem extends SubsystemBase {
 
   /** Applies the desired drum state. Ordinary commands request states instead. */
   public void applyDrumState(ShooterDrumState desiredState) {
-    io.setDrumControl(desiredState.request);
+    // A 0 RPM velocity setpoint is closed-loop braking: from shooting speed the four drum motors
+    // drive several volts against their back-EMF and pull their full supply limit from the
+    // battery on every trigger release. With no speed wanted, let the drum coast down instead.
+    io.setDrumControl(
+        desiredState.request.Velocity == 0 ? DRUM_NEUTRAL_REQUEST : desiredState.request);
     Logger.recordOutput("Shooter/Drum/AppliedState", desiredState);
     Logger.recordOutput("Shooter/Drum/SetpointRpm", desiredState.request.Velocity * 60.0);
   }
@@ -140,6 +162,7 @@ public final class ShooterSubsystem extends SubsystemBase {
   public boolean readyToShoot() {
     boolean activeShot =
         stateHandler.desiredShooterDrumState == ShooterDrumState.SHOOTING
+            || stateHandler.desiredShooterDrumState == ShooterDrumState.SHOOTING_ON_MOVE
             || stateHandler.desiredShooterDrumState == ShooterDrumState.FERRY;
     boolean configuredSetpoint = stateHandler.desiredShooterDrumState.request.Velocity > 0; // don't NEED this but good safety check
     return activeShot
@@ -172,15 +195,22 @@ public final class ShooterSubsystem extends SubsystemBase {
         .andThen(
             run(() -> io.setHoodControl(homingRequest))
                 .until(
-                    () ->
-                        // Ignore "stopped" until the hood has had time to start moving, otherwise
-                        // it finishes immediately against its own standstill.
-                        foundHardStop[0] =
-                            timer.hasElapsed(ShooterConstants.HOOD_HOMING_MIN_MOVE_SECONDS)
-                                && stopped.calculate(
-                                    Math.abs(inputs.hoodVelocityDegreesPerSecond)
-                                        < ShooterConstants
-                                            .HOOD_HOMING_STOPPED_DEGREES_PER_SECOND)))
+                    () -> {
+                      // Ignore "stopped" until the hood has had time to start moving, otherwise
+                      // it finishes immediately against its own standstill. Feed the debouncer
+                      // every loop (false until then) so the stop must last the full debounce
+                      // time after that window, not just one slow sample.
+                      boolean pastStartup =
+                          timer.hasElapsed(ShooterConstants.HOOD_HOMING_MIN_MOVE_SECONDS);
+                      foundHardStop[0] =
+                          stopped.calculate(
+                              pastStartup
+                                  // A disconnected hood reads a stale 0 velocity, not a stop.
+                                  && inputs.hoodConnected
+                                  && Math.abs(inputs.hoodVelocityDegreesPerSecond)
+                                      < ShooterConstants.HOOD_HOMING_STOPPED_DEGREES_PER_SECOND);
+                      return foundHardStop[0];
+                    }))
         .withTimeout(ShooterConstants.HOOD_HOMING_TIMEOUT_SECONDS)
         .finallyDo(
             interrupted -> {
@@ -188,8 +218,13 @@ public final class ShooterSubsystem extends SubsystemBase {
               if (!foundHardStop[0]) {
                 // Timed out or was cancelled: the zero is unknown, so leave the encoder alone.
                 DriverStation.reportWarning("Hood homing did not find the hard stop.", false);
-              } else {
-                io.setHoodPosition(0);
+              } else if (!io.setHoodPosition(0)) {
+                // The stop was found but the TalonFX never took the new zero.
+                foundHardStop[0] = false;
+              }
+              if (foundHardStop[0]) {
+                hoodHomed = true;
+                hoodZeroLostAlert.set(false);
               }
               Logger.recordOutput("Shooter/Hood/Homed", foundHardStop[0]);
             })
@@ -199,6 +234,24 @@ public final class ShooterSubsystem extends SubsystemBase {
   public Command shootCommand() {
     return requestWhileHeld(
         ShooterHoodState.SHOOTING, ShooterDrumState.SHOOTING, "ShooterShoot");
+  }
+
+  /**
+   * Requests distance tracking with shoot-on-the-move velocity compensation while {@code armed} is
+   * true and stows otherwise. Run
+   * for a whole auto routine so the drum stays spun up across path boundaries.
+   */
+  public Command shootOnTheMoveWhenArmedCommand(BooleanSupplier armed) {
+    return Commands.runEnd(
+            () -> {
+              if (armed.getAsBoolean()) {
+                request(ShooterHoodState.SHOOTING_ON_MOVE, ShooterDrumState.SHOOTING_ON_MOVE);
+              } else {
+                request(ShooterHoodState.STOWED, ShooterDrumState.IDLE);
+              }
+            },
+            () -> request(ShooterHoodState.STOWED, ShooterDrumState.IDLE))
+        .withName("ShooterShootOnTheMoveWhenArmed");
   }
 
   public Command warmCommand() {

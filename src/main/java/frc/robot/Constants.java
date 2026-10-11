@@ -14,7 +14,6 @@ import com.ctre.phoenix6.configs.TalonFXConfiguration;
 import com.ctre.phoenix6.signals.GravityTypeValue;
 import com.ctre.phoenix6.signals.InvertedValue;
 import com.ctre.phoenix6.signals.NeutralModeValue;
-import com.ctre.phoenix6.swerve.utility.PhoenixPIDController;
 import com.pathplanner.lib.path.PathConstraints;
 import edu.wpi.first.math.geometry.Pose2d;
 import edu.wpi.first.math.geometry.Rotation2d;
@@ -87,7 +86,7 @@ public final class Constants {
     // Gear ratios are motor rotations per mechanism rotation.
     public static final double ARM_GEAR_RATIO = 20.0;
     public static final double ROLLER_GEAR_RATIO = 2.0;
-    // Software limits, in degrees from the boot/stowed zero. Assumes positive = deploying.
+    // Software limits, in degrees from the homed stowed zero. Assumes positive = deploying.
     // TODO: confirm the arm moves positive when deploying before enabling.
     public static final double ARM_MIN_DEGREES = 0.0;
     public static final double ARM_MAX_DEGREES = 120.0;
@@ -101,7 +100,16 @@ public final class Constants {
     // toward deploying. Valid for a level angle between 90 and 270 degrees.
     public static final double ARM_GRAVITY_OFFSET_DEGREES = 180.0 - ARM_LEVEL_DEGREES;
     public static final double ARM_POSITION_TOLERANCE_DEGREES = 3.0;
+    /** Arm angle at the stowed hard stop; the encoder is set to this when homing finishes. */
     public static final double ARM_ZERO_OFFSET_DEGREES = 0.0; // TODO: calibrate
+
+    // Homing drives the arm into its stowed hard stop and zeroes it there. TODO: set the voltage
+    // sign so it drives toward the stowed hard stop, then tune all of these on the robot.
+    public static final double ARM_HOMING_VOLTS = -2.0;
+    public static final double ARM_HOMING_STALL_CURRENT_AMPS = 30.0;
+    public static final double ARM_HOMING_STALL_VELOCITY_DEGREES_PER_SECOND = 5.0;
+    public static final double ARM_HOMING_STALL_SECONDS = 0.25;
+    public static final double ARM_HOMING_TIMEOUT_SECONDS = 3.0;
 
     // Simulation-only mechanism inertia. TODO: estimate from CAD
     public static final double ARM_SIM_MOI_KG_METERS_SQUARED = 0.1;
@@ -189,7 +197,8 @@ public final class Constants {
                 new CurrentLimitsConfigs()
                     .withStatorCurrentLimitEnable(true)
                     .withSupplyCurrentLimitEnable(true)
-                    .withStatorCurrentLimit(60)
+                    // A 0 A limit is a real limit in Phoenix and leaves the motor with no torque.
+                    .withStatorCurrentLimit(60) // TODO: tune
                     .withSupplyCurrentLimit(40))
             .withFeedback(new FeedbackConfigs().withSensorToMechanismRatio(GEAR_RATIO))
             .withMotorOutput(
@@ -210,12 +219,14 @@ public final class Constants {
   }
 
   public static final class ShooterConstants {
-    // Values carried from the in-progress shooter branch; verify CAN-bus conflicts before use.
-    public static final int HOOD_MOTOR_ID = 10;
-    public static final int DRUM_LEADER_ID = 11;
-    public static final int DRUM_FOLLOWER_ONE_ID = 12;
-    public static final int DRUM_FOLLOWER_TWO_ID = 13;
-    public static final int DRUM_FOLLOWER_THREE_ID = 14;
+    // TODO: confirm on the robot. Kept clear of every other device ID (swerve uses 1-12, Pigeon 21,
+    // intake 15-16, floor roller 17), so nothing collides even
+    // if the swerve and shooter end up on the same CAN bus. Set the motors to match in Tuner X.
+    public static final int HOOD_MOTOR_ID = 22;
+    public static final int DRUM_LEADER_ID = 23;
+    public static final int DRUM_FOLLOWER_ONE_ID = 24;
+    public static final int DRUM_FOLLOWER_TWO_ID = 25;
+    public static final int DRUM_FOLLOWER_THREE_ID = 26;
 
     // Gear ratios are motor rotations per mechanism rotation.
     public static final double HOOD_GEAR_RATIO = 5.0 / 2.0;
@@ -234,6 +245,19 @@ public final class Constants {
     public static final double HOOD_HOMING_STOPPED_SECONDS = 0.25;
     public static final double HOOD_HOMING_TIMEOUT_SECONDS = 3.0;
     public static final double DRUM_TOLERANCE_RPM = 75.0;
+
+    /**
+     * Maximum backing speed accepted by the SOTM feedforward. This bounds corrections if odometry
+     * reports a transient velocity spike.
+     */
+    public static final double SOTM_MAX_BACKING_SPEED_METERS_PER_SECOND = 0.50;
+    /** Added drum RPM per m/s of backing speed. TODO: characterize. */
+    public static final double SOTM_RPM_PER_METER_PER_SECOND = 0.0;
+    /**
+     * Added hood degrees per m/s of backing speed. The mechanism geometry determines the sign.
+     * TODO: characterize.
+     */
+    public static final double SOTM_HOOD_DEGREES_PER_METER_PER_SECOND = 0.0;
 
     // Simulation-only mechanism inertia. TODO: estimate from CAD
     public static final double HOOD_SIM_MOI_KG_METERS_SQUARED = 0.01;
@@ -342,8 +366,10 @@ public final class Constants {
   public static final class SwerveConstants {
     public static final double MAX_DRIVE_ANGULAR_VELOCITY = Units.degreesToRadians(720);
     public static final double HEADING_TOLERANCE_DEGREES = 5.0;
-    public static final PhoenixPIDController HEADING_CONTROLLER =
-        new PhoenixPIDController(3 * Math.PI, 0, 0); // TODO: need to tune
+    // Heading-lock gains, in rad/s of rotation per radian of heading error. TODO: need to tune
+    public static final double HEADING_KP = 3 * Math.PI;
+    public static final double HEADING_KI = 0;
+    public static final double HEADING_KD = 0;
     public static final PathConstraints PATHING_CONSTRAINTS =
         new PathConstraints(
             2.25, 2.25, Units.degreesToRadians(360), Units.degreesToRadians(360));

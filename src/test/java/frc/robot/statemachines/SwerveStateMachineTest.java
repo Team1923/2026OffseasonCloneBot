@@ -25,8 +25,9 @@ class SwerveStateMachineTest {
   }
 
   /**
-   * Assigning our own PhoenixPIDController replaces the one CTRE wraps at -180..180 degrees, so
-   * wrapping has to be re-enabled or the heading error can take the long way around.
+   * The heading controller must wrap at -180..180 degrees or the heading error can take the long
+   * way around. CTRE's own controller does this, which is why gains are set with withHeadingPID
+   * instead of assigning a replacement controller.
    */
   @Test
   void headingControllerWrapsAtHalfTurn() {

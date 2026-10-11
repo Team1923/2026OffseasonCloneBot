@@ -4,7 +4,9 @@ import com.ctre.phoenix6.BaseStatusSignal;
 import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.hardware.TalonFX;
+import com.ctre.phoenix6.signals.InvertedValue;
 import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.filter.Debouncer.DebounceType;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Angle;
@@ -13,6 +15,7 @@ import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
 import frc.robot.Constants.IntakeConstants;
+import frc.robot.lib.phoenix.PhoenixUtil;
 import frc.robot.lib.sim.TalonFXMotorSim;
 import org.littletonrobotics.junction.LogTable;
 import org.littletonrobotics.junction.inputs.LoggableInputs;
@@ -91,8 +94,10 @@ public interface IntakeIO {
   /** Sends a Phoenix control request to the roller motor. */
   default void setRollerControl(ControlRequest request) {}
 
-  /** Seeds the pivot encoder with a known mechanism angle. */
-  default void setArmPosition(double degrees) {}
+  /** Seeds the pivot encoder with a known mechanism angle. Returns whether the write succeeded. */
+  default boolean setArmPosition(double degrees) {
+    return true;
+  }
 
   /** Real intake hardware: two TalonFX motor controllers. */
   class Real implements IntakeIO {
@@ -112,12 +117,14 @@ public interface IntakeIO {
     private final StatusSignal<Current> rollerStatorCurrent = roller.getStatorCurrent();
     private final StatusSignal<Temperature> rollerTemperature = roller.getDeviceTemp();
 
-    private final Debouncer armConnectedDebounce = new Debouncer(0.5);
-    private final Debouncer rollerConnectedDebounce = new Debouncer(0.5);
+    private final Debouncer armConnectedDebounce = new Debouncer(0.5, DebounceType.kFalling);
+    private final Debouncer rollerConnectedDebounce = new Debouncer(0.5, DebounceType.kFalling);
 
     public Real() {
-      arm.getConfigurator().apply(IntakeConstants.ARM_CONFIG);
-      roller.getConfigurator().apply(IntakeConstants.ROLLER_CONFIG);
+      PhoenixUtil.tryUntilOk(
+          "Intake arm config", () -> arm.getConfigurator().apply(IntakeConstants.ARM_CONFIG));
+      PhoenixUtil.tryUntilOk(
+          "Intake roller config", () -> roller.getConfigurator().apply(IntakeConstants.ROLLER_CONFIG));
     }
 
     @Override
@@ -166,19 +173,14 @@ public interface IntakeIO {
     }
 
     @Override
-    public void setArmPosition(double degrees) {
-      arm.setPosition(Units.degreesToRotations(degrees));
+    public boolean setArmPosition(double degrees) {
+      return arm.setPosition(Units.degreesToRotations(degrees)).isOK();
     }
   }
 
   /** Simulated intake: the TalonFX control loops run in Phoenix sim against DC motor physics. */
   class Sim extends Real {
-    private final TalonFXMotorSim armSim =
-        new TalonFXMotorSim(
-            arm,
-            DCMotor.getKrakenX60(1),
-            IntakeConstants.ARM_SIM_MOI_KG_METERS_SQUARED,
-            IntakeConstants.ARM_GEAR_RATIO);
+    private final TalonFXMotorSim armSim = armSimStartingOnStowedHardStop(arm);
     private final TalonFXMotorSim rollerSim =
         new TalonFXMotorSim(
             roller,
@@ -191,6 +193,26 @@ public interface IntakeIO {
       armSim.update();
       rollerSim.update();
       super.updateInputs(inputs);
+    }
+
+    /**
+     * The simulated arm starts resting on its stowed hard stop, so homing stalls against it like on
+     * the robot. The stop is on the side the homing voltage drives toward; sim-state positions are
+     * counter-clockwise positive whatever the invert, so a clockwise-positive motor flips the side.
+     */
+    private static TalonFXMotorSim armSimStartingOnStowedHardStop(TalonFX arm) {
+      TalonFXMotorSim sim =
+          new TalonFXMotorSim(
+              arm,
+              DCMotor.getKrakenX60(1),
+              IntakeConstants.ARM_SIM_MOI_KG_METERS_SQUARED,
+              IntakeConstants.ARM_GEAR_RATIO);
+      boolean clockwisePositive =
+          IntakeConstants.ARM_CONFIG.MotorOutput.Inverted == InvertedValue.Clockwise_Positive;
+      boolean homesTowardPositive = (IntakeConstants.ARM_HOMING_VOLTS > 0) != clockwisePositive;
+      return homesTowardPositive
+          ? sim.withHardStops(Double.NEGATIVE_INFINITY, 0)
+          : sim.withHardStops(0, Double.POSITIVE_INFINITY);
     }
   }
 }

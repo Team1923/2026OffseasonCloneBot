@@ -32,20 +32,25 @@ public final class ShooterStateMachine extends Command {
     ShooterHoodState desiredShooterHoodState = stateHandler.desiredShooterHoodState;
     ShooterDrumState desiredShooterDrumState = stateHandler.desiredShooterDrumState;
 
-    if (desiredShooterHoodState == ShooterHoodState.SHOOTING) {
-      // Keep the target reachable: past a soft limit the hood stops short and readyToShoot never
-      // turns true, so feeding would stall.
+    if (desiredShooterHoodState == ShooterHoodState.SHOOTING
+        || desiredShooterHoodState == ShooterHoodState.SHOOTING_ON_MOVE) {
+      // Keep both stationary and on-the-move targets inside the hood's reachable range.
       double hoodAngleDegrees =
           MathUtil.clamp(
-              vision.getHoodAngle(),
+              desiredShooterHoodState == ShooterHoodState.SHOOTING_ON_MOVE
+                  ? vision.getShootOnTheMoveHoodAngle()
+                  : vision.getHoodAngle(),
               ShooterConstants.HOOD_MIN_DEGREES,
               ShooterConstants.HOOD_MAX_DEGREES);
-      ShooterHoodState.SHOOTING.request.Position =
-          Units.degreesToRotations(hoodAngleDegrees);
+      desiredShooterHoodState.request.Position = Units.degreesToRotations(hoodAngleDegrees);
     }
-    if (desiredShooterDrumState == ShooterDrumState.SHOOTING) {
-      double drumRpm = vision.getRPM();
-      ShooterDrumState.SHOOTING.request.Velocity = drumRpm / 60.0;
+    if (desiredShooterDrumState == ShooterDrumState.SHOOTING
+        || desiredShooterDrumState == ShooterDrumState.SHOOTING_ON_MOVE) {
+      double drumRpm =
+          desiredShooterDrumState == ShooterDrumState.SHOOTING_ON_MOVE
+              ? vision.getShootOnTheMoveRPM()
+              : vision.getRPM();
+      desiredShooterDrumState.request.Velocity = drumRpm / 60.0;
     }
 
     shooter.applyHoodState(desiredShooterHoodState);
