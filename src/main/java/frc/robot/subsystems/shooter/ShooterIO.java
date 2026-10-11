@@ -7,6 +7,7 @@ import com.ctre.phoenix6.controls.Follower;
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.signals.MotorAlignmentValue;
 import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.filter.Debouncer.DebounceType;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Angle;
@@ -16,6 +17,7 @@ import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
 import edu.wpi.first.wpilibj.RobotController;
 import frc.robot.Constants.ShooterConstants;
+import frc.robot.lib.phoenix.PhoenixUtil;
 import frc.robot.lib.sim.TalonFXMotorSim;
 import java.util.ArrayList;
 import java.util.List;
@@ -44,6 +46,8 @@ public interface ShooterIO {
     public double hoodSupplyCurrentAmps = 0.0;
     public double hoodStatorCurrentAmps = 0.0;
     public double hoodTemperatureCelsius = 0.0;
+    /** True on the loop the hood TalonFX is first seen after a reboot, which loses its position. */
+    public boolean hoodMotorReset = false;
 
     /** Leader drum velocity; the followers mirror the leader. */
     public double drumVelocityRpm = 0.0;
@@ -63,6 +67,7 @@ public interface ShooterIO {
       table.put("HoodSupplyCurrentAmps", hoodSupplyCurrentAmps);
       table.put("HoodStatorCurrentAmps", hoodStatorCurrentAmps);
       table.put("HoodTemperatureCelsius", hoodTemperatureCelsius);
+      table.put("HoodMotorReset", hoodMotorReset);
 
       table.put("DrumVelocityRpm", drumVelocityRpm);
       table.put("DrumConnected", drumConnected);
@@ -82,6 +87,7 @@ public interface ShooterIO {
       hoodSupplyCurrentAmps = table.get("HoodSupplyCurrentAmps", hoodSupplyCurrentAmps);
       hoodStatorCurrentAmps = table.get("HoodStatorCurrentAmps", hoodStatorCurrentAmps);
       hoodTemperatureCelsius = table.get("HoodTemperatureCelsius", hoodTemperatureCelsius);
+      hoodMotorReset = table.get("HoodMotorReset", hoodMotorReset);
 
       drumVelocityRpm = table.get("DrumVelocityRpm", drumVelocityRpm);
       drumConnected = table.get("DrumConnected", drumConnected);
@@ -101,8 +107,14 @@ public interface ShooterIO {
   /** Sends a Phoenix control request to the drum leader; the followers mirror it. */
   default void setDrumControl(ControlRequest request) {}
 
-  /** Seeds the hood encoder with a known mechanism angle, used by homing. */
-  default void setHoodPosition(double degrees) {}
+  /**
+   * Seeds the hood encoder with a known mechanism angle, used by homing.
+   *
+   * @return whether the TalonFX accepted the new position
+   */
+  default boolean setHoodPosition(double degrees) {
+    return true;
+  }
 
   /** Real shooter hardware: a TalonFX hood and a leader + three follower TalonFX drum. */
   class Real implements ShooterIO {
@@ -131,19 +143,22 @@ public interface ShooterIO {
     private final List<StatusSignal<Current>> drumStatorCurrent = new ArrayList<>();
     private final List<StatusSignal<Temperature>> drumTemperature = new ArrayList<>();
 
-    private final Debouncer hoodConnectedDebounce = new Debouncer(0.5);
+    private final Debouncer hoodConnectedDebounce = new Debouncer(0.5, DebounceType.kFalling);
     private final Debouncer[] drumConnectedDebounce = new Debouncer[DRUM_MOTOR_COUNT];
 
     public Real() {
-      hoodMotor.getConfigurator().apply(ShooterConstants.HOOD_CONFIG);
+      PhoenixUtil.tryUntilOk(
+          "Shooter hood config", () -> hoodMotor.getConfigurator().apply(ShooterConstants.HOOD_CONFIG));
       for (int i = 0; i < DRUM_MOTOR_COUNT; i++) {
         TalonFX drumMotor = drumMotors[i];
-        drumMotor.getConfigurator().apply(ShooterConstants.DRUM_CONFIG);
+        PhoenixUtil.tryUntilOk(
+            "Shooter drum " + i + " config",
+            () -> drumMotor.getConfigurator().apply(ShooterConstants.DRUM_CONFIG));
         drumAppliedVolts.add(drumMotor.getMotorVoltage());
         drumSupplyCurrent.add(drumMotor.getSupplyCurrent());
         drumStatorCurrent.add(drumMotor.getStatorCurrent());
         drumTemperature.add(drumMotor.getDeviceTemp());
-        drumConnectedDebounce[i] = new Debouncer(0.5);
+        drumConnectedDebounce[i] = new Debouncer(0.5, DebounceType.kFalling);
       }
 
       // TODO: Verify follower directions on the assembled drum before enabling it.
@@ -174,6 +189,7 @@ public interface ShooterIO {
       inputs.hoodSupplyCurrentAmps = hoodSupplyCurrent.getValueAsDouble();
       inputs.hoodStatorCurrentAmps = hoodStatorCurrent.getValueAsDouble();
       inputs.hoodTemperatureCelsius = hoodTemperature.getValueAsDouble();
+      inputs.hoodMotorReset = hoodMotor.hasResetOccurred();
 
       BaseStatusSignal.refreshAll(drumVelocity);
       inputs.drumVelocityRpm = drumVelocity.getValueAsDouble() * 60.0;
@@ -204,8 +220,11 @@ public interface ShooterIO {
     }
 
     @Override
-    public void setHoodPosition(double degrees) {
-      hoodMotor.setPosition(Units.degreesToRotations(degrees));
+    public boolean setHoodPosition(double degrees) {
+      // Called from the homing command on the robot loop, so one attempt only: retrying a
+      // missing motor would stall the scheduler for each attempt's full timeout.
+      return PhoenixUtil.tryUntilOk(
+          "Shooter hood zero", 1, () -> hoodMotor.setPosition(Units.degreesToRotations(degrees)));
     }
   }
 
