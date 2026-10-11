@@ -6,17 +6,21 @@ package frc.robot.subsystems.vision;
 
 import com.ctre.phoenix6.Utils;
 
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.VecBuilder;
 import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.math.geometry.Translation2d;
+import edu.wpi.first.math.kinematics.ChassisSpeeds;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
-import frc.robot.StateHandler;
 import frc.robot.Constants.FieldConstants;
 import frc.robot.Constants.InterpolationConstants;
 import frc.robot.Constants.LoggingConstants.Mode;
+import frc.robot.Constants.ShooterConstants;
 import frc.robot.Constants.VisionConstants;
+import frc.robot.StateHandler;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
 import java.util.Arrays;
 import org.littletonrobotics.junction.Logger;
@@ -100,6 +104,44 @@ public final class VisionSubsystem extends SubsystemBase {
   public double getHoodAngle() {
     Double hoodAngleDegrees = InterpolationConstants.distanceToHoodMap.get(getDistanceToHub());
     return hoodAngleDegrees == null ? 0.0 : hoodAngleDegrees;
+  }
+
+  /** Field-relative robot velocity projected directly away from the alliance hub. */
+  public double getBackingSpeedFromHubMetersPerSecond() {
+    Pose2d pose = getPose();
+    Translation2d hubToRobot =
+        pose.getTranslation().minus(getAllianceHubPose().getTranslation());
+    if (hubToRobot.getNorm() < 1e-6) {
+      return 0.0;
+    }
+
+    ChassisSpeeds fieldSpeeds =
+        ChassisSpeeds.fromRobotRelativeSpeeds(swerve.getSpeeds(), pose.getRotation());
+    return (fieldSpeeds.vxMetersPerSecond * hubToRobot.getX()
+            + fieldSpeeds.vyMetersPerSecond * hubToRobot.getY())
+        / hubToRobot.getNorm();
+  }
+
+  /** Distance-map RPM plus a feedforward for the measured radial backing velocity. */
+  public double getShootOnTheMoveRPM() {
+    double backingSpeed = getBoundedSotmBackingSpeed();
+    // The applied drum and hood setpoints are logged under Shooter/Drum and Shooter/Hood.
+    Logger.recordOutput("Shooter/SOTM/BackingSpeedMetersPerSecond", backingSpeed);
+    return getRPM() + ShooterConstants.SOTM_RPM_PER_METER_PER_SECOND * backingSpeed;
+  }
+
+  /** Distance-map hood angle plus a feedforward for the measured radial backing velocity. */
+  public double getShootOnTheMoveHoodAngle() {
+    double backingSpeed = getBoundedSotmBackingSpeed();
+    return getHoodAngle()
+        + ShooterConstants.SOTM_HOOD_DEGREES_PER_METER_PER_SECOND * backingSpeed;
+  }
+
+  private double getBoundedSotmBackingSpeed() {
+    return MathUtil.clamp(
+        getBackingSpeedFromHubMetersPerSecond(),
+        0.0,
+        ShooterConstants.SOTM_MAX_BACKING_SPEED_METERS_PER_SECOND);
   }
 
   /** Resets odometry to the most trustworthy MegaTag1 estimate from any of the four Limelights. */

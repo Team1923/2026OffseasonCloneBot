@@ -240,6 +240,19 @@ public final class Constants {
     public static final double HOOD_HOMING_TIMEOUT_SECONDS = 3.0;
     public static final double DRUM_TOLERANCE_RPM = 75.0;
 
+    /**
+     * Maximum backing speed accepted by the SOTM feedforward. This bounds corrections if odometry
+     * reports a transient velocity spike.
+     */
+    public static final double SOTM_MAX_BACKING_SPEED_METERS_PER_SECOND = 0.50;
+    /** Added drum RPM per m/s of backing speed. TODO: characterize. */
+    public static final double SOTM_RPM_PER_METER_PER_SECOND = 0.0;
+    /**
+     * Added hood degrees per m/s of backing speed. The mechanism geometry determines the sign.
+     * TODO: characterize.
+     */
+    public static final double SOTM_HOOD_DEGREES_PER_METER_PER_SECOND = 0.0;
+
     // Simulation-only mechanism inertia. TODO: estimate from CAD
     public static final double HOOD_SIM_MOI_KG_METERS_SQUARED = 0.01;
     public static final double DRUM_SIM_MOI_KG_METERS_SQUARED = 0.01;

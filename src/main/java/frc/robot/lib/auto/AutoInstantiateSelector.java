@@ -1,0 +1,107 @@
+// Copyright (c) FIRST and other WPILib contributors.
+// Open Source Software; you can modify and/or share it under the terms of
+// the WPILib BSD license file in the root directory of this project.
+
+package frc.robot.lib.auto;
+
+import com.pathplanner.lib.path.PathPlannerPath;
+import edu.wpi.first.math.geometry.Pose2d;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.DriverStation.Alliance;
+import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
+import frc.robot.commands.autos.LDoubleNZ;
+import frc.robot.commands.autos.RDoubleNZ;
+import frc.robot.subsystems.swerve.SwerveSubsystem;
+import frc.robot.subsystems.vision.VisionSubsystem;
+import java.util.function.Supplier;
+import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
+
+public final class AutoInstantiateSelector {
+  private enum AutoMode {
+    SOTM_L_DOUBLE_NZ("SOTM LDoubleNZ", LDoubleNZ::new, LDoubleNZ.FIRST_TRAJECTORY),
+    SOTM_R_DOUBLE_NZ("SOTM RDoubleNZ", RDoubleNZ::new, RDoubleNZ.FIRST_TRAJECTORY);
+
+    private final String displayName;
+    private final Supplier<Command> routine;
+    private final String firstPath;
+
+    AutoMode(String displayName, Supplier<Command> routine, String firstPath) {
+      this.displayName = displayName;
+      this.routine = routine;
+      this.firstPath = firstPath;
+    }
+  }
+
+  private final LoggedDashboardChooser<AutoMode> chooser =
+      new LoggedDashboardChooser<>("Auto Mode");
+  private AutoMode loadedMode;
+  private Alliance loadedAlliance;
+  private Command loadedCommand;
+
+  public AutoInstantiateSelector() {
+    chooser.addDefaultOption(
+        AutoMode.SOTM_L_DOUBLE_NZ.displayName, AutoMode.SOTM_L_DOUBLE_NZ);
+    chooser.addOption(AutoMode.SOTM_R_DOUBLE_NZ.displayName, AutoMode.SOTM_R_DOUBLE_NZ);
+  }
+
+  /** Reloads the autonomous command when the dashboard selection or alliance changes. */
+  public void updateSelectedCommand() {
+    AutoMode mode = chooser.get();
+    Alliance alliance = DriverStation.getAlliance().orElse(Alliance.Blue);
+
+    if (loadedCommand != null && mode == loadedMode && alliance == loadedAlliance) {
+      return;
+    }
+
+    loadedMode = mode;
+    loadedAlliance = alliance;
+
+    if (mode == null) {
+      loadedCommand = Commands.print("No auto selected!");
+      return;
+    }
+
+    PathPlannerPath selectedPath = AutoHelpers.choreoToPathPlannerConverter(mode.firstPath);
+    if (selectedPath == null) {
+      // Run the rest of the routine from the current odometry pose rather than sitting still.
+      DriverStation.reportError(
+          "Auto start path not found, skipping odometry reset: " + mode.firstPath, false);
+      loadedCommand = mode.routine.get().withName(mode.displayName);
+      return;
+    }
+
+    PathPlannerPath firstPath =
+        alliance == Alliance.Red ? selectedPath.flipPath() : selectedPath;
+    Pose2d startPose =
+        firstPath
+            .getStartingHolonomicPose()
+            .orElseGet(
+                () ->
+                    new Pose2d(
+                        firstPath.getPoint(0).position,
+                        firstPath.getIdealStartingState().rotation()));
+
+    // Skip the reset when vision already seeded the pose, since a multi-tag estimate of where the
+    // robot really is beats the nominal start pose.
+    loadedCommand =
+        Commands.sequence(
+                SwerveSubsystem.getInstance()
+                    .runOnce(
+                        () -> {
+                          if (!VisionSubsystem.getInstance().hasSeededPose()) {
+                            SwerveSubsystem.getInstance().resetPose(startPose);
+                          }
+                        }),
+                mode.routine.get())
+            .withName(mode.displayName);
+  }
+
+  /** Returns the command prepared while disabled, loading it now only as a fallback. */
+  public Command getSelectedCommand() {
+    updateSelectedCommand();
+    Command selectedCommand = loadedCommand;
+    loadedCommand = null;
+    return selectedCommand;
+  }
+}

@@ -19,6 +19,7 @@ import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.ShooterConstants;
 import frc.robot.StateHandler;
+import java.util.function.BooleanSupplier;
 import org.littletonrobotics.junction.Logger;
 
 /** Controls the four-motor shooter drum and adjustable hood. */
@@ -41,6 +42,7 @@ public final class ShooterSubsystem extends SubsystemBase {
   public enum ShooterHoodState {
     STOWED(degreesRequest(0)),
     SHOOTING(degreesRequest(0)), // TODO: replace with shot model
+    SHOOTING_ON_MOVE(degreesRequest(0)),
     FERRY(degreesRequest(0)); // TODO: tune
 
     public final MotionMagicVoltage request;
@@ -59,6 +61,7 @@ public final class ShooterSubsystem extends SubsystemBase {
     IDLE(rpmRequest(0)),
     WARMING(rpmRequest(0)), // TODO: tune - slow velocity of wheels always running, try ~1500 RPM
     SHOOTING(rpmRequest(0)), // TODO: replace with shot model
+    SHOOTING_ON_MOVE(rpmRequest(0)),
     FERRY(rpmRequest(0)); // TODO: tune
 
     public final VelocityVoltage request;
@@ -159,6 +162,7 @@ public final class ShooterSubsystem extends SubsystemBase {
   public boolean readyToShoot() {
     boolean activeShot =
         stateHandler.desiredShooterDrumState == ShooterDrumState.SHOOTING
+            || stateHandler.desiredShooterDrumState == ShooterDrumState.SHOOTING_ON_MOVE
             || stateHandler.desiredShooterDrumState == ShooterDrumState.FERRY;
     boolean configuredSetpoint = stateHandler.desiredShooterDrumState.request.Velocity > 0; // don't NEED this but good safety check
     return activeShot
@@ -230,6 +234,24 @@ public final class ShooterSubsystem extends SubsystemBase {
   public Command shootCommand() {
     return requestWhileHeld(
         ShooterHoodState.SHOOTING, ShooterDrumState.SHOOTING, "ShooterShoot");
+  }
+
+  /**
+   * Requests distance tracking with shoot-on-the-move velocity compensation while {@code armed} is
+   * true and stows otherwise. Run
+   * for a whole auto routine so the drum stays spun up across path boundaries.
+   */
+  public Command shootOnTheMoveWhenArmedCommand(BooleanSupplier armed) {
+    return Commands.runEnd(
+            () -> {
+              if (armed.getAsBoolean()) {
+                request(ShooterHoodState.SHOOTING_ON_MOVE, ShooterDrumState.SHOOTING_ON_MOVE);
+              } else {
+                request(ShooterHoodState.STOWED, ShooterDrumState.IDLE);
+              }
+            },
+            () -> request(ShooterHoodState.STOWED, ShooterDrumState.IDLE))
+        .withName("ShooterShootOnTheMoveWhenArmed");
   }
 
   public Command warmCommand() {
