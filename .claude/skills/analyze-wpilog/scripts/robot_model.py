@@ -103,7 +103,7 @@ def _eval(expr: str, scope: dict):
     e = re.sub(r"\bUnits\.degreesToRadians\(", "_deg2rad(", e)
     e = re.sub(r"\bUnits\.radiansToDegrees\(", "_rad2deg(", e)
     e = e.replace("Math.PI", "3.141592653589793")
-    e = re.sub(r"\b(\w+Constants)\.(\w+)", lambda m: m.group(2), e)  # IntakeConstants.X -> X
+    e = re.sub(r"\b(\w+Constants)\.(\w+)", r"\1__\2", e)  # IntakeConstants.X -> IntakeConstants__X
     e = re.sub(r"(\d)[dDfFlL]\b", r"\1", e)  # Java literal suffixes
     try:
         tree = ast.parse(e, mode="eval")
@@ -149,22 +149,31 @@ def parse_constants(path: Path) -> dict:
             for c in re.finditer(r"static\s+final\s+(?:double|int|float|long)\s+(\w+)\s*=\s*([^;]+);", body)
         }
         classes[m.group(1)] = {"body": body}
-    # Constants may refer to each other (and across classes), so resolve until nothing changes.
-    scope: dict[str, float] = {}
+    # Constants may refer to each other (and across classes, as XConstants.NAME), so resolve until
+    # nothing changes. Each class has its own scope, like Java: a GEAR_RATIO in one class must not
+    # take another class's GEAR_RATIO.
+    resolved: dict[str, dict[str, float]] = {c: {} for c in raw_values}
+
+    def scope_for(cname: str) -> dict:
+        sc = {f"{c}__{n}": v for c, vals in resolved.items() for n, v in vals.items()}
+        sc.update(resolved[cname])
+        return sc
+
     for _ in range(5):
         changed = False
-        for values in raw_values.values():
+        for cname, values in raw_values.items():
             for name, expr in values.items():
-                if name not in scope:
-                    v = _eval(expr, scope)
+                if name not in resolved[cname]:
+                    v = _eval(expr, scope_for(cname))
                     if v is not None:
-                        scope[name] = v
+                        resolved[cname][name] = v
                         changed = True
         if not changed:
             break
     for cname, info in classes.items():
         body = info.pop("body")
-        info["values"] = {n: scope[n] for n in raw_values[cname] if n in scope}
+        scope = scope_for(cname)
+        info["values"] = dict(resolved[cname])
         configs = {}
         for c in re.finditer(r"static\s+final\s+TalonFXConfiguration\s+(\w+)\s*=", body):
             stmt = body[c.end(): body.find(";", c.end())]
@@ -183,6 +192,17 @@ def parse_constants(path: Path) -> dict:
             }
         info["configs"] = configs
     return classes
+
+
+_UNIT_WORDS = {"position": ("DEG", "ROT", "POSITION"), "velocity": ("RPM", "RPS", "VELOCITY"),
+               "voltage": ("VOLT",)}
+
+
+def _unit_matches(name: str, kind: str) -> bool:
+    """False when a constant's name says units of another kind (e.g. _DEGREES for a voltage)."""
+    words = name.upper().split("_")
+    other = [o for k, ws in _UNIT_WORDS.items() if k != kind for o in ws]
+    return not any(w.startswith(o) for w in words for o in other)
 
 
 def find_constants_file(repo: Path = REPO_ROOT) -> Path | None:
@@ -265,9 +285,10 @@ class RobotModel:
         sub_mechs = [m for m in self.mechanisms.values() if m["subsystem"] == shoot_sub]
         self.shooting = {
             "ready": f"RealOutputs/{ready}" if ready else None,
-            # Commands named like shooting actions (ShootGamePieces, FerryGamePieces, ...).
+            # Commands named like shooting actions (ShootGamePieces, FerryGamePieces, ...), not the
+            # shooter's own commands (ShooterStateMachine is its default command and always runs).
             "shoot_commands": [f"RealOutputs/{k}" for k in outs if k.startswith("Commands/")
-                               and re.search(r"shoot|ferry", k.split("/", 1)[1], re.I)],
+                               and re.match(r"(shoot|ferry)(?!er)", k.split("/", 1)[1], re.I)],
             "homed": [f"RealOutputs/{k}" for k in outs if k.endswith("/Homed")],
             "position_mech": next((m for m in sub_mechs if m["kind"] == "position"), None),
             "velocity_mech": next((m for m in sub_mechs if m["kind"] == "velocity"), None),
@@ -287,7 +308,11 @@ class RobotModel:
             cname = next(iter(configs))
         cfg = configs.get(cname, {})
         tols = [n for n in values if "TOLERANCE" in n]
-        tol_name = next((n for n in tols if mech.upper() in n), tols[0] if len(tols) == 1 else None)
+        tol_name = next((n for n in tols if mech.upper() in n), None)
+        if tol_name is None and len(tols) == 1 and _unit_matches(tols[0], kind):
+            # The class's only tolerance, unless its name says other units
+            # (IntakeConstants' ARM_POSITION_TOLERANCE_DEGREES is not a roller tolerance in volts).
+            tol_name = tols[0]
         label = f"{sub} {mech.lower()}"
         if tol_name is None:
             self.notes.append(f"{label}: no tolerance found in {sub}Constants; using {_DEFAULT_TOL[kind]} {units}.")

@@ -137,6 +137,25 @@ def read_dslog(path) -> DsLog:
     return log
 
 
+def read_dslog_window(path) -> tuple:
+    """(start_unix, end_unix) of a .dslog, stepping over records without decoding them. Same
+    record count as read_dslog, so it agrees with DsLog.start_unix/end_unix."""
+    data = Path(path).read_bytes()
+    if len(data) < 20 or struct.unpack_from(">i", data, 0)[0] != 4:
+        raise ValueError(f"{path}: not a version 4 .dslog")
+    start = _lv_time(data, 4)
+    pos, count, n = 20, 0, len(data)
+    while pos + 14 <= n:
+        pd_id = data[pos + 13]
+        pos += 14
+        size = 33 if pd_id == _PD_REV else 25 if pd_id == _PD_CTRE else 0
+        if pos + size > n:
+            break
+        pos += size
+        count += 1
+    return start, start + count * _PERIOD
+
+
 def read_dsevents(path) -> DsEvents:
     data = Path(path).read_bytes()
     if len(data) < 20 or struct.unpack_from(">i", data, 0)[0] != 4:

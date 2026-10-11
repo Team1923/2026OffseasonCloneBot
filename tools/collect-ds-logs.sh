@@ -120,7 +120,7 @@ while IFS= read -r dslog; do
   done
 done <<< "$stems"
 
-akit_count=$(find "$USB/logs" -maxdepth 1 -name '*.wpilog' 2>/dev/null | wc -l | tr -d ' ')
+akit_count=$({ find "$USB/logs" -maxdepth 1 -name '*.wpilog' 2>/dev/null || true; } | wc -l | tr -d ' ')
 newest=$(ls -t "$USB/logs"/*.wpilog 2>/dev/null | head -1 || true)
 
 echo

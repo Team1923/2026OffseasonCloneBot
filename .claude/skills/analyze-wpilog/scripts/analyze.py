@@ -33,7 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import robot_model as RM  # noqa: E402
-from dslog import read_dslog, read_dsevents  # noqa: E402
+from dslog import read_dslog, read_dslog_window, read_dsevents  # noqa: E402
 from wpilog import Series, WpiLog, pose2d_tuple  # noqa: E402
 
 DT = 0.02  # analysis grid, matches the 20 ms robot loop
@@ -106,7 +106,7 @@ class Log:
         if self.epoch0 is None:
             self.ds_note = "DS logs found, but this log has no valid clock to line them up with."
             return
-        match = best_ds_match(self.epoch0, self.epoch0 + self.end, candidates)
+        match = best_ds_match(self.epoch0, self.epoch0 + self.end, ds_windows_of(candidates))
         if match is None:
             self.ds_note = "No DS log overlaps this log's time range."
             return
@@ -118,6 +118,15 @@ class Log:
             except ValueError:
                 pass
         self.ds_note = f"Driver Station log: {match.name}"
+        if akit_clock_offset(self.raw) is None:
+            # The file-name time can be minutes off this log's t=0, so line the two logs up on
+            # their first enable instead.
+            first_ds = next((i for i in range(len(self.ds.times)) if self.ds.enabled(i)), None)
+            if self.has_ds and self.enabled_intervals and first_ds is not None:
+                self.epoch0 = self.ds.start_unix + self.ds.times[first_ds] - self.enabled_intervals[0][0]
+                self.ds_note += " (no robot clock in this log; times lined up on the first enable)"
+            else:
+                self.ds_note += " (no robot clock in this log; DS times are approximate)"
 
     def ds_to_log_time(self, ds_t: float, start_unix: float | None = None) -> float:
         """Converts a time in a DS file (seconds since it started) to this log's time."""
@@ -186,15 +195,24 @@ def intervals_where(series: Series, predicate, end: float) -> list[tuple[float, 
     return [(a, b) for a, b in out if b > a]
 
 
-def akit_epoch_offset(raw: WpiLog) -> float | None:
-    """Unix time of the log's t=0, from SystemStats/EpochTimeMicros (valid once the DS sets the
-    roboRIO clock). Falls back to the time in the akit_yy-MM-dd_HH-mm-ss filename, which is the
-    PC's local time in simulation and the roboRIO's (UTC) on the robot. None if neither exists."""
+def akit_clock_offset(raw: WpiLog) -> float | None:
+    """Exact unix time of the log's t=0, from SystemStats/EpochTimeMicros (valid once the DS sets
+    the roboRIO clock). None if the log never had a valid clock."""
     s = raw.series("SystemStats/EpochTimeMicros")
     if s is not None:
         offsets = [v / 1e6 - t for t, v in zip(s.times, s.values) if isinstance(v, int) and v > 1.5e15]
         if offsets:
             return statistics.median(offsets)
+    return None
+
+
+def akit_epoch_offset(raw: WpiLog) -> float | None:
+    """Unix time of the log's t=0: akit_clock_offset, falling back to the time in the
+    akit_yy-MM-dd_HH-mm-ss filename, which is the PC's local time in simulation and the roboRIO's
+    (UTC) on the robot. None if neither exists."""
+    exact = akit_clock_offset(raw)
+    if exact is not None:
+        return exact
     import datetime
     import re as _re
     m = _re.search(r"akit_(\d\d-\d\d-\d\d_\d\d-\d\d-\d\d)", Path(raw.path).name)
@@ -208,19 +226,28 @@ def akit_epoch_offset(raw: WpiLog) -> float | None:
     else:
         start = stamp.replace(tzinfo=datetime.timezone.utc).timestamp()
     # In sim the name is set on the first cycle; on the robot a few seconds after the DS connects.
-    # Either way it is close enough to pick the overlapping DS log, which is all this is used for.
+    # Either way it is close enough to pick the overlapping DS log, but not to line up times
+    # exactly (Log._attach_ds re-aligns on the first enable when this fallback is used).
     return start
 
 
-def best_ds_match(akit_start: float, akit_end: float, candidates: list[Path]) -> Path | None:
-    """The .dslog overlapping [akit_start, akit_end] (unix seconds) the most, or None."""
-    best, best_overlap = None, 0.0
+def ds_windows_of(candidates: list[Path]) -> list[tuple[Path, float, float]]:
+    """(path, start_unix, end_unix) of each readable .dslog, without decoding its records."""
+    out = []
     for p in candidates:
         try:
-            ds = read_dslog(p)
+            out.append((p, *read_dslog_window(p)))
         except (ValueError, OSError):
             continue
-        overlap = min(akit_end, ds.end_unix) - max(akit_start, ds.start_unix)
+    return out
+
+
+def best_ds_match(akit_start: float, akit_end: float,
+                  windows: list[tuple[Path, float, float]]) -> Path | None:
+    """The .dslog overlapping [akit_start, akit_end] (unix seconds) the most, or None."""
+    best, best_overlap = None, 0.0
+    for p, a, b in windows:
+        overlap = min(akit_end, b) - max(akit_start, a)
         if overlap > best_overlap:
             best, best_overlap = p, overlap
     return best
@@ -299,8 +326,12 @@ def analyze_mechanism(log: Log, name: str, grid: list[float]) -> tuple[dict, lis
 
     multi = m["multi_motor"]
     if multi:
-        stator_s = log.get(m["stator"])
-        n_motors = max((len(v) for v in stator_s.values if isinstance(v, list)), default=0) if stator_s else 0
+        # Count motors from whichever per-motor array is logged (either may be missing or empty).
+        n_motors = 0
+        for key in (m["stator"], m["connected"]):
+            s = log.get(key)
+            if s is not None:
+                n_motors = max(n_motors, max((len(v) for v in s.values if isinstance(v, list)), default=0))
         motor_names = [log.model.motor_name(m, k) for k in range(n_motors)]
     meas_s = log.get(m["measured"])
     sp_s = log.get(m["setpoint"])
@@ -1601,13 +1632,9 @@ def cmd_ingest(args):
     print(f"Stick {usb}: {len(akit)} AdvantageKit logs, {len(dslogs)} DS logs -> {dest}")
 
     # Time window of every DS log, read once.
-    ds_windows = []
-    for p in dslogs:
-        try:
-            d = read_dslog(p)
-            ds_windows.append((p, d.start_unix, d.end_unix))
-        except (ValueError, OSError) as e:
-            print(f"  skipping unreadable DS log {p.name}: {e}")
+    ds_windows = ds_windows_of(dslogs)
+    for p in sorted(set(dslogs) - {w[0] for w in ds_windows}):
+        print(f"  skipping unreadable DS log {p.name}")
     used_ds: set = set()
     rows, new_logs = [], []
     for p in akit:
@@ -1618,16 +1645,10 @@ def cmd_ingest(args):
             continue
         folder = dest / p.stem
         copied = _copy_if_new(p, folder / p.name)
-        enabled = raw.series("DriverStation/Enabled")
+        enabled = next((s for s in map(raw.series, RM.DS_ENABLED) if s is not None), None)
         en_s = sum(b - a for a, b in intervals_where(enabled, bool, raw.duration)) if enabled else 0.0
         epoch0 = akit_epoch_offset(raw)
-        paired = None
-        if epoch0 is not None:
-            best = 0.0
-            for dp, a, b in ds_windows:
-                overlap = min(epoch0 + raw.duration, b) - max(epoch0, a)
-                if overlap > best:
-                    best, paired = overlap, dp
+        paired = best_ds_match(epoch0, epoch0 + raw.duration, ds_windows) if epoch0 is not None else None
         if paired is not None:
             used_ds.add(paired)
             copied |= _copy_if_new(paired, folder / paired.name)
@@ -1686,6 +1707,12 @@ def cmd_simtest(args):
             sys.exit("No simulator log in logs/. Run the simulator first (docs/LOG_ANALYSIS_WITH_CLAUDE.md).")
         sim_log = found[-1]
     work = logs_dir / "simtest"
+    if work.resolve() in sim_log.resolve().parents:
+        # The log is a copy from an earlier simtest, which is about to be deleted: keep it in logs/.
+        kept = logs_dir / sim_log.name
+        if not kept.exists():
+            shutil.copy2(sim_log, kept)
+        sim_log = kept
     if work.exists():
         shutil.rmtree(work)
     stick, dest = work / "stick", work / "matches"
@@ -1727,6 +1754,9 @@ def cmd_simtest(args):
 
 def write_index(dest: Path):
     """INDEX.md: one row per ingested match with its finding counts, newest first."""
+    if not dest.is_dir():
+        print(f"Nothing ingested into {dest} yet; no index written.")
+        return
     rows = []
     for folder in sorted((d for d in dest.iterdir() if d.is_dir() and not d.name.startswith("_")),
                          reverse=True):
