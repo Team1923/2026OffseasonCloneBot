@@ -40,6 +40,10 @@ public final class StateHandler {
 
   public boolean isRedAlliance = false;
   public ScoringMode scoringMode = ScoringMode.RANGED;
+  /** True between the SOTM and SOTM_END Choreo events. */
+  public boolean shootOnTheMoveActive = false;
+  /** True from a SOTM_PREP Choreo event until SOTM_END; keeps the drum spun up between paths. */
+  public boolean shootOnTheMovePrepared = false;
 
   public Command setScoringMode(ScoringMode mode) {
     return Commands.runOnce(() -> scoringMode = mode).withName("SetScoringMode" + mode);
@@ -66,6 +70,8 @@ public final class StateHandler {
   public void log() {
     Logger.recordOutput("StateHandler/IsRedAlliance", isRedAlliance);
     Logger.recordOutput("StateHandler/Shooter/ScoringMode", scoringMode);
+    Logger.recordOutput("StateHandler/Auto/ShootOnTheMoveActive", shootOnTheMoveActive);
+    Logger.recordOutput("StateHandler/Auto/ShootOnTheMovePrepared", shootOnTheMovePrepared);
 
     Logger.recordOutput("StateHandler/Intake/DesiredArmState", desiredIntakeArmState);
     Logger.recordOutput("StateHandler/Intake/CurrentArmState", currentIntakeArmState);

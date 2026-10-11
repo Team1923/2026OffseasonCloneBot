@@ -66,9 +66,10 @@ class WpiLogWriter:
         self._record(entry_id, int(ts * 1e6), payload)
 
 
-def build_log(path: Path):
+def build_log(path: Path, epoch: bool = True, robot_mode: str = "REAL"):
     """45 s log: 2 s disabled, 40 s teleop enabled, 3 s disabled. Faults are injected on purpose."""
     w = WpiLogWriter()
+    path.parent.mkdir(parents=True, exist_ok=True)
     A = "/RealOutputs/"
     schema = {
         "/.schema/struct:Translation2d": "double x;double y",
@@ -80,6 +81,8 @@ def build_log(path: Path):
         w.put(k, 0, v)
     keys = {
         "/Timestamp": "int64",  # AdvantageKit writes this every cycle; replay steps on it
+        "/SystemStats/EpochTimeMicros": "int64",  # real UTC time, used to line up DS logs
+        "/RealMetadata/RobotMode": "string",
         "/DriverStation/Enabled": "boolean", "/DriverStation/Autonomous": "boolean",
         "/DriverStation/DSAttached": "boolean",  # WPILib only reports enabled with a DS attached
         "/SystemStats/BatteryVoltage": "double", "/SystemStats/BrownedOut": "boolean",
@@ -110,6 +113,10 @@ def build_log(path: Path):
         t = i * 0.02
         enabled = 2.0 <= t < 42.0
         w.put("/Timestamp", t, int(t * 1e6))
+        if epoch:
+            w.put("/SystemStats/EpochTimeMicros", t, int((EPOCH0 + t) * 1e6))
+        if i == 0:
+            w.put("/RealMetadata/RobotMode", t, robot_mode)
         w.put("/DriverStation/Enabled", t, enabled)
         w.put("/DriverStation/Autonomous", t, False)
         w.put("/DriverStation/DSAttached", t, True)
@@ -164,12 +171,63 @@ def build_log(path: Path):
     path.write_bytes(bytes(w.buf))
 
 
+EPOCH0 = 1_790_000_000.0  # unix time of the synthetic AdvantageKit log's t=0
+LV_OFFSET = 2_082_844_800  # LabVIEW epoch (1904) to unix epoch
+
+
+def _lv(unix: float) -> bytes:
+    seconds = int(unix // 1) + LV_OFFSET
+    return struct.pack(">qQ", seconds, int((unix % 1) * 2**64))
+
+
+def build_ds_files(folder: Path, start_unix: float, length: float = 46.0, stem: str = "ds",
+                   epoch0: float = EPOCH0):
+    """A .dslog/.dsevents pair starting at start_unix: enabled 2-42 s on the AdvantageKit clock,
+    40% packet loss at 25-27 s, no comms at 33-34 s, REV PDH channel 5 drawing 30 A while enabled."""
+    folder.mkdir(parents=True, exist_ok=True)
+    buf = bytearray(struct.pack(">i", 4) + _lv(start_unix))
+    n = int(length / 0.02)
+    for i in range(n):
+        t = start_unix + i * 0.02 - epoch0  # time on the AdvantageKit clock
+        enabled = 2.0 <= t < 42.0
+        no_comms = 33.0 <= t < 34.0
+        trip = 255 if no_comms else 4  # 2 ms
+        loss = 10 if 25.0 <= t < 27.0 else 0  # x4 % -> 40%
+        mask = 0xFF
+        if not enabled:
+            mask &= ~0x08  # DS disabled bit is active-low
+        else:
+            mask &= ~0x20  # teleop
+        buf += struct.pack(">BbHBBBBH", trip, loss, int(12.5 * 256), 60, mask, 40, 80, 2 * 256)
+        buf += bytes([0, 0, 0, 33])  # PD header, type 33 = REV PDH
+        bits = [0] * 216
+        amps = [0.0] * 20
+        if enabled:
+            amps[5] = 30.0
+        for ch, a in enumerate(amps):
+            start, value = (ch // 3) * 32 + (ch % 3) * 10, int(a * 8)
+            for b in range(10):
+                bits[start + b] = (value >> b) & 1
+        packed = bytes(sum(bits[k * 8 + b] << b for b in range(8)) for k in range(27))
+        buf += bytes([1]) + packed + bytes(4) + bytes([0])
+    (folder / f"{stem}.dslog").write_bytes(bytes(buf))
+
+    ev = bytearray(struct.pack(">i", 4) + _lv(start_unix))
+    for t, text in [(10.0, "<TagVersion>1 <time> 00:10.000 <message> Info roboRIO: Disk Free 100 MB"),
+                    (12.0, "<TagVersion>1 <time> 00:12.000 <message> Joystick 1 was unplugged"),
+                    (33.0, "<TagVersion>1 <time> 00:33.000 <message> FRC: The Driver Station has lost communication with the robot.")]:
+        body = text.encode()
+        ev += _lv(epoch0 + t) + struct.pack(">i", len(body)) + body
+    (folder / f"{stem}.dsevents").write_bytes(bytes(ev))
+
+
 class AnalyzerTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
         cls.path = Path(cls.tmp.name) / "synthetic.wpilog"
         build_log(cls.path)
+        build_ds_files(Path(cls.tmp.name) / "dslogs", EPOCH0 - 1.0)
 
     @classmethod
     def tearDownClass(cls):
@@ -219,6 +277,67 @@ class AnalyzerTest(unittest.TestCase):
                            "--from", "10", "--to", "10.1", "--step", "0.05")
         self.assertIn("12", csv.splitlines()[1])
         self.assertIn("deg)", csv)
+
+
+    def test_ds_log_is_paired_and_analyzed(self):
+        text = self.run_cmd("report", str(self.path))
+        self.assertIn("Driver Station log: ds.dslog", text)
+        self.assertIn("lost communication with the robot 1x (at 33.0s)", text)  # cycle gap + message merged
+        self.assertIn("packet loss at or above 20%", text)
+        self.assertIn("controller problem", text)
+        self.assertIn("| 5 | (unmapped) | 30.0 |", text)
+        self.assertNotIn("Disk Free", text)  # routine DS noise is filtered
+        tl = self.run_cmd("timeline", str(self.path), "--only", "ds,fault")
+        self.assertRegex(tl, r"33\.0\ds.*lost communication")
+        no_ds = self.run_cmd("report", str(self.path), "--ds", "none")
+        self.assertNotIn("Driver Station log:", no_ds)
+
+    def test_ingest_from_usb_stick(self):
+        usb = Path(self.tmp.name) / "usb"
+        name = "akit_26-09-21_14-00-00_njfla_q12"
+        (usb / "logs").mkdir(parents=True)
+        (usb / "logs" / f"{name}.wpilog").write_bytes(self.path.read_bytes())
+        build_ds_files(usb / "dslogs", EPOCH0 - 1.0, stem="2026_09_21 10_00_00 Mon")
+        build_ds_files(usb / "dslogs", EPOCH0 + 5000, stem="2026_09_21 11_30_00 Mon")  # no robot log
+        dest = Path(self.tmp.name) / "matches"
+        out = self.run_cmd("ingest", str(usb), "--dest", str(dest), "--report")
+        self.assertIn("2026_09_21 10_00_00 Mon.dslog", out)
+        match = dest / name
+        self.assertTrue((match / "2026_09_21 10_00_00 Mon.dsevents").is_file())
+        self.assertIn("Driver Station log:", (match / "report.md").read_text(encoding="utf-8"))
+        self.assertTrue((dest / "_ds_only" / "2026_09_21 11_30_00 Mon.dslog").is_file())
+        self.assertIn(name, (dest / "INDEX.md").read_text(encoding="utf-8"))
+        again = self.run_cmd("ingest", str(usb), "--dest", str(dest))
+        self.assertNotIn("| yes |", again)  # nothing new the second time
+
+
+    def test_sim_log_pairs_by_filename_time(self):
+        """Sim logs may lack a valid roboRIO clock; pairing then uses the local time in the name."""
+        import datetime
+        folder = Path(self.tmp.name) / "simpair"
+        start = datetime.datetime(2026, 9, 20, 16, 30, 0)
+        name = "akit_" + start.strftime("%y-%m-%d_%H-%M-%S") + ".wpilog"
+        build_log(folder / name, epoch=False, robot_mode="SIM")
+        build_ds_files(folder / "dslogs", start.timestamp() - 2.0, stem="2026_09_20 16_29_58 Sun",
+                       epoch0=start.timestamp())
+        text = self.run_cmd("report", str(folder / name))
+        self.assertIn("Driver Station log: 2026_09_20 16_29_58 Sun.dslog", text)
+
+    def test_pd_channel_names_come_from_robot_overview(self):
+        import robot_model
+        repo = Path(self.tmp.name) / "repo"
+        (repo / "docs").mkdir(parents=True)
+        table = [
+            "| PDH channel | Device | Breaker (A) |",
+            "| --- | --- | --- |",
+            "| 0 | FL drive | 40 |",
+            "| 1 |  |  |",
+            "| 10 | Drum leader | 40 |",
+            "",
+            "After the table.",
+        ]
+        (repo / "docs" / "ROBOT_OVERVIEW.md").write_text("\n".join(table), encoding="utf-8")
+        self.assertEqual(robot_model.parse_pd_channels(repo), {0: "FL drive", 10: "Drum leader"})
 
 
 if __name__ == "__main__":

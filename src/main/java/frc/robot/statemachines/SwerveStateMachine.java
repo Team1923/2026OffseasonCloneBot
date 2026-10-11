@@ -121,20 +121,18 @@ public final class SwerveStateMachine extends Command {
 
   /** Package-private for {@code SwerveStateMachineTest}. */
   static SwerveRequest.FieldCentricFacingAngle createFacingHeadingRequest() {
-    var request =
-        new SwerveRequest.FieldCentricFacingAngle()
-            .withDriveRequestType(DriveRequestType.Velocity)
-            .withSteerRequestType(SteerRequestType.Position)
-            // Desired headings are computed from blue-origin poses, so heading control must ignore
-            // the operator perspective. Without this, CTRE rotates the target by the operator
-            // forward direction, which is 180 degrees on red: the robot faces exactly away from
-            // the target. Translation keeps the operator perspective for the driver.
-            .withTargetDirectionPerspective(TargetDirectionPerspectiveValue.BlueAlliance);
-
-    request.HeadingController = SwerveConstants.HEADING_CONTROLLER;
-    // Assigning our own controller replaces the one CTRE wraps at -180..180 degrees, so wrapping
-    // has to be re-enabled or the heading error can take the long way around.
-    request.HeadingController.enableContinuousInput(-Math.PI, Math.PI);
-    return request;
+    return new SwerveRequest.FieldCentricFacingAngle()
+        .withDriveRequestType(DriveRequestType.Velocity)
+        .withSteerRequestType(SteerRequestType.Position)
+        // Desired headings are computed from blue-origin poses, so heading control must ignore
+        // the operator perspective. Without this, CTRE rotates the target by the operator
+        // forward direction, which is 180 degrees on red: the robot faces exactly away from
+        // the target. Translation keeps the operator perspective for the driver.
+        .withTargetDirectionPerspective(TargetDirectionPerspectiveValue.BlueAlliance)
+        // Set gains on CTRE's own controller: it has continuous input enabled, so the robot
+        // turns the short way across +/-180 degrees. A replacement controller would not.
+        .withHeadingPID(
+            SwerveConstants.HEADING_KP, SwerveConstants.HEADING_KI, SwerveConstants.HEADING_KD)
+        .withMaxAbsRotationalRate(SwerveConstants.MAX_DRIVE_ANGULAR_VELOCITY);
   }
 }
