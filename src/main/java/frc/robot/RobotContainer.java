@@ -70,7 +70,8 @@ public class RobotContainer {
     shooterSubsystem.setDefaultCommand(
         new ShooterStateMachine(shooterSubsystem, visionSubsystem));
 
-    // Home the intake arm on the first enable, and again on the next enable if homing failed.
+    // Home the intake arm on the first enable, and again on the next enable if homing failed. The
+    // operator can also retry it without a disable (create button).
     new Trigger(DriverStation::isEnabled)
         .and(() -> !intakeSubsystem.isArmHomed())
         .onTrue(intakeSubsystem.homeArmCommand());
@@ -98,6 +99,7 @@ public class RobotContainer {
     operatorController.triangle().onTrue(stateHandler.setScoringMode(ScoringMode.FERRY));
     operatorController.options().onTrue(intakeSubsystem.stowCommand());
     operatorController.square().onTrue(shooterSubsystem.homeHoodCommand());
+    operatorController.create().onTrue(intakeSubsystem.homeArmCommand());
   }
 
   /**

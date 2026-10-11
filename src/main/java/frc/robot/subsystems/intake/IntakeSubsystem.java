@@ -128,8 +128,9 @@ public final class IntakeSubsystem extends SubsystemBase {
     return true; // will get to state instantly
   }
 
-  public void zeroIntakeArm() {
-    io.setArmPosition(IntakeConstants.ARM_ZERO_OFFSET_DEGREES);
+  /** Returns whether the encoder write reached the motor. */
+  public boolean zeroIntakeArm() {
+    return io.setArmPosition(IntakeConstants.ARM_ZERO_OFFSET_DEGREES);
   }
 
   /** Whether the arm has been zeroed against its hard stop since robot code started. */
@@ -160,9 +161,13 @@ public final class IntakeSubsystem extends SubsystemBase {
                 DriverStation.reportWarning(
                     "Intake arm homing did not finish; the arm stays unpowered until it homes",
                     false);
-              } else {
-                zeroIntakeArm();
+              } else if (zeroIntakeArm()) {
                 armHomed = true;
+              } else {
+                // The arm is on the hard stop but the zero never reached the motor, so its
+                // position is still unknown. Stay unhomed rather than drive from a stale zero.
+                DriverStation.reportWarning(
+                    "Intake arm homing could not zero the encoder; the arm stays unpowered", false);
               }
             })
         .withTimeout(IntakeConstants.ARM_HOMING_TIMEOUT_SECONDS)
@@ -188,7 +193,8 @@ public final class IntakeSubsystem extends SubsystemBase {
             () -> request(IntakeArmState.STOWED, IntakeRollerState.REST))
         .until(
             () ->
-                stateHandler.currentIntakeArmState == IntakeArmState.STOWED
+                armHomed
+                    && stateHandler.currentIntakeArmState == IntakeArmState.STOWED
                     && stateHandler.currentIntakeRollerState == IntakeRollerState.REST)
         .withName("IntakeStow");
   }

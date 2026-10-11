@@ -36,7 +36,8 @@ public final class IntakeStateMachine extends Command {
     }
 
     // Until the arm is homed its encoder zero is unknown, so position control could drive it into
-    // the frame. Leave it unpowered and never report it as having reached a state.
+    // the frame. Leave it unpowered and never update currentIntakeArmState (it keeps its boot
+    // default of STOWED, so callers that need the real arm position must also check isArmHomed).
     if (intake.isArmHomed()) {
       intake.applyArmState(desiredIntakeArmState);
     } else {

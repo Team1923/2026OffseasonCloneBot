@@ -92,8 +92,10 @@ public interface IntakeIO {
   /** Sends a Phoenix control request to the roller motor. */
   default void setRollerControl(ControlRequest request) {}
 
-  /** Seeds the pivot encoder with a known mechanism angle. */
-  default void setArmPosition(double degrees) {}
+  /** Seeds the pivot encoder with a known mechanism angle. Returns whether the write succeeded. */
+  default boolean setArmPosition(double degrees) {
+    return true;
+  }
 
   /** Real intake hardware: two TalonFX motor controllers. */
   class Real implements IntakeIO {
@@ -167,8 +169,8 @@ public interface IntakeIO {
     }
 
     @Override
-    public void setArmPosition(double degrees) {
-      arm.setPosition(Units.degreesToRotations(degrees));
+    public boolean setArmPosition(double degrees) {
+      return arm.setPosition(Units.degreesToRotations(degrees)).isOK();
     }
   }
 
