@@ -14,6 +14,8 @@ import com.pathplanner.lib.util.FileVersionException;
 
 import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.Command;
+import edu.wpi.first.wpilibj2.command.Commands;
+import frc.robot.subsystems.vision.VisionSubsystem;
 
 /**
  * Loads a Choreo trajectory (deploy/choreo/&lt;trajectoryName&gt;.traj) and wraps it into a
@@ -59,6 +61,25 @@ public final class AutoHelpers {
     }
 
     return AutoBuilder.followPath(path);
+  }
+
+  // Resets odometry to where the path starts (flipped for red), so an auto begins with the right
+  // heading even if vision never saw a tag while disabled. Skipped when vision already seeded the
+  // pose, since a multi-tag estimate of where the robot really is beats the nominal start pose.
+  // Does nothing if the path failed to load.
+  public static Command resetPoseToPathStart(PathPlannerPath path) {
+    if (path == null || !AutoBuilder.isConfigured()) {
+      return generateBlankCommand();
+    }
+
+    return path.getStartingHolonomicPose()
+        .map(
+            pose ->
+                Commands.either(
+                    Commands.none(),
+                    AutoBuilder.resetOdom(pose),
+                    () -> VisionSubsystem.getInstance().hasSeededPose()))
+        .orElseGet(AutoHelpers::generateBlankCommand);
   }
 
   public static Command generateBlankCommand() {

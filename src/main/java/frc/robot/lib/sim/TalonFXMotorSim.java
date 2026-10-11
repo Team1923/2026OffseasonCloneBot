@@ -2,6 +2,7 @@ package frc.robot.lib.sim;
 
 import com.ctre.phoenix6.hardware.TalonFX;
 import com.ctre.phoenix6.sim.TalonFXSimState;
+import edu.wpi.first.math.MathUtil;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.system.plant.LinearSystemId;
 import edu.wpi.first.math.util.Units;
@@ -21,6 +22,8 @@ public final class TalonFXMotorSim {
   private final TalonFXSimState simState;
   private final DCMotorSim motorSim;
   private final double rotorToMechanismRatio;
+  private double minPositionRotations = Double.NEGATIVE_INFINITY;
+  private double maxPositionRotations = Double.POSITIVE_INFINITY;
 
   /**
    * @param talon the device to simulate
@@ -42,11 +45,29 @@ public final class TalonFXMotorSim {
             gearbox);
   }
 
+  /**
+   * Adds hard stops the mechanism cannot move past, so driving into one stalls the motor like it
+   * would on the robot. Positions are mechanism rotations from where the simulation started, in the
+   * sim-state frame (counter-clockwise positive regardless of the motor's configured invert).
+   */
+  public TalonFXMotorSim withHardStops(double minRotations, double maxRotations) {
+    minPositionRotations = minRotations;
+    maxPositionRotations = maxRotations;
+    return this;
+  }
+
   /** Advances the physics by one robot loop and feeds the result back into the TalonFX. */
   public void update() {
     simState.setSupplyVoltage(RobotController.getBatteryVoltage());
     motorSim.setInputVoltage(simState.getMotorVoltage());
     motorSim.update(LOOP_PERIOD_SECONDS);
+
+    double positionRotations = motorSim.getAngularPositionRotations();
+    if (positionRotations < minPositionRotations || positionRotations > maxPositionRotations) {
+      double stopRotations =
+          MathUtil.clamp(positionRotations, minPositionRotations, maxPositionRotations);
+      motorSim.setState(Units.rotationsToRadians(stopRotations), 0.0);
+    }
 
     simState.setRawRotorPosition(motorSim.getAngularPositionRotations() * rotorToMechanismRatio);
     simState.setRotorVelocity(

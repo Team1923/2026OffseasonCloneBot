@@ -4,6 +4,7 @@
 
 package frc.robot.commands.autos;
 
+import com.pathplanner.lib.path.PathPlannerPath;
 import edu.wpi.first.wpilibj2.command.ParallelDeadlineGroup;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
 import edu.wpi.first.wpilibj2.command.WaitCommand;
@@ -16,8 +17,10 @@ import frc.robot.lib.auto.AutoHelpers;
  */
 public class RDoubleNZ extends SequentialCommandGroup {
   public RDoubleNZ() {
+    PathPlannerPath trenchToShoot = AutoHelpers.choreoToPathPlannerConverter("R_TrenchToR_Shoot");
     addCommands(
-        AutoHelpers.commandPathFromCatchesErrors(AutoHelpers.choreoToPathPlannerConverter("R_TrenchToR_Shoot")),
+        AutoHelpers.resetPoseToPathStart(trenchToShoot),
+        AutoHelpers.commandPathFromCatchesErrors(trenchToShoot),
           new ParallelDeadlineGroup(
             new WaitCommand(5)
             // new ShootCommand() 

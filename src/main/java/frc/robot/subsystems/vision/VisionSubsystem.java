@@ -18,11 +18,14 @@ import frc.robot.Constants.InterpolationConstants;
 import frc.robot.Constants.LoggingConstants.Mode;
 import frc.robot.Constants.VisionConstants;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
+import java.util.Arrays;
 import org.littletonrobotics.junction.Logger;
 
 /** Adds MegaTag2 pose estimates from all four Limelights to swerve odometry. */
 public final class VisionSubsystem extends SubsystemBase {
   private static final String[] CAMERA_NAMES = {"FrontLeft", "FrontRight", "RearLeft", "RearRight"};
+  /** Tier 1: multiple tags. Tier 2: one tag with low ambiguity. Tier 3 is never trusted. */
+  private static final int WORST_TRUSTED_MT1_TIER = 2;
 
   private static VisionSubsystem visionSubsystem;
 
@@ -48,6 +51,12 @@ public final class VisionSubsystem extends SubsystemBase {
   private final VisionIO[] io;
   private final VisionIO.VisionIOInputs[] inputs;
   private final Alert[] disconnectedAlerts;
+  /** Timestamp of the last MegaTag2 frame seen from each camera, so each frame is fused once. */
+  private final double[] lastFrameTimestamps;
+  /** Set once the robot is first enabled; after that the gyro heading is already trusted. */
+  private boolean hasBeenEnabled = false;
+  /** Whether the pose was seeded from a multi-tag MegaTag1 estimate before the first enable. */
+  private boolean poseSeeded = false;
 
   /** Cameras are passed in the order front left, front right, rear left, rear right. */
   private VisionSubsystem(
@@ -55,6 +64,8 @@ public final class VisionSubsystem extends SubsystemBase {
     io = new VisionIO[] {frontLeft, frontRight, rearLeft, rearRight};
     inputs = new VisionIO.VisionIOInputs[io.length];
     disconnectedAlerts = new Alert[io.length];
+    lastFrameTimestamps = new double[io.length];
+    Arrays.fill(lastFrameTimestamps, Double.NaN);
     for (int i = 0; i < io.length; i++) {
       inputs[i] = new VisionIO.VisionIOInputs();
       disconnectedAlerts[i] =
@@ -96,7 +107,9 @@ public final class VisionSubsystem extends SubsystemBase {
     int best = getBestMt1Camera();
 
     if (best < 0) {
-      DriverStation.reportWarning("Could not zero pose: No Limelights have a target.", false);
+      DriverStation.reportWarning(
+          "Could not zero pose: No connected Limelight has a trustworthy MegaTag1 estimate.",
+          false);
       return;
     }
 
@@ -105,14 +118,23 @@ public final class VisionSubsystem extends SubsystemBase {
     swerve.resetPose(inputs[best].megaTag1Pose);
   }
 
+  /** Whether vision seeded the pose from a multi-tag MegaTag1 estimate before the first enable. */
+  public boolean hasSeededPose() {
+    return poseSeeded;
+  }
+
   /**
-   * Index of the camera with the best MegaTag1 estimate, or -1 if none see a tag. Lower quality
-   * tier wins; ties go to the closer average tag distance.
+   * Index of the connected camera with the best MegaTag1 estimate, or -1 if none has one worth
+   * trusting. Lower quality tier wins; ties go to the closer average tag distance. Disconnected
+   * cameras still hold their last estimate, and tier 3 (one tag, high ambiguity) can be a flipped
+   * pose, so neither is ever used.
    */
   public int getBestMt1Camera() {
     int best = -1;
     for (int i = 0; i < inputs.length; i++) {
-      if (!inputs[i].hasMegaTag1Estimate) {
+      if (!inputs[i].connected
+          || !inputs[i].hasMegaTag1Estimate
+          || getQualityTier(inputs[i]) > WORST_TRUSTED_MT1_TIER) {
         continue;
       }
       if (best < 0 || compareMt1Quality(inputs[i], inputs[best]) < 0) {
@@ -152,18 +174,46 @@ public final class VisionSubsystem extends SubsystemBase {
       disconnectedAlerts[i].set(!inputs[i].connected);
     }
 
+    // The gyro boots at 0 whichever way the robot faces, and MegaTag2 trusts that heading without
+    // ever correcting it. While disabled, seed the whole pose from a multi-tag MegaTag1 estimate so
+    // the heading is right before the match starts. Only before the first enable: after that the
+    // gyro heading is good, and re-seeding in the auto-to-teleop gap would throw away odometry.
+    if (DriverStation.isEnabled()) {
+      hasBeenEnabled = true;
+    }
+    boolean seedingPose = false;
+    if (DriverStation.isDisabled() && !hasBeenEnabled) {
+      int best = getBestMt1Camera();
+      if (best >= 0 && inputs[best].megaTag1TagCount >= 2) {
+        swerve.resetPose(inputs[best].megaTag1Pose);
+        seedingPose = true;
+        poseSeeded = true;
+      }
+    }
+    Logger.recordOutput("Vision/SeedingPoseWhileDisabled", seedingPose);
+
     // Reject measurements while spinning too quickly for reliable pose estimates.
     boolean spinningTooFast = Math.abs(swerve.getYawVelocityDegreesPerSecond()) >= 720;
     Logger.recordOutput("Vision/RejectedForSpin", spinningTooFast);
 
     // All four Limelights are intentionally active and independently fused.
     for (int i = 0; i < io.length; i++) {
-      addVisionMeasurement(CAMERA_NAMES[i], inputs[i], !spinningTooFast);
+      addVisionMeasurement(i, !spinningTooFast);
     }
   }
 
-  private void addVisionMeasurement(String cameraName, VisionIO.VisionIOInputs camera, boolean allowed) {
-    boolean accepted = allowed && camera.hasEstimate;
+  private void addVisionMeasurement(int cameraIndex, boolean allowed) {
+    String cameraName = CAMERA_NAMES[cameraIndex];
+    VisionIO.VisionIOInputs camera = inputs[cameraIndex];
+
+    // Limelights keep publishing their last estimate, so the same frame shows up every loop until
+    // a new one arrives, and forever after a camera drops off. Fuse each frame once, and only from
+    // a camera that is still updating.
+    boolean newFrame =
+        camera.hasEstimate && camera.timestampSeconds != lastFrameTimestamps[cameraIndex];
+    lastFrameTimestamps[cameraIndex] = camera.timestampSeconds;
+
+    boolean accepted = allowed && camera.connected && newFrame;
     Logger.recordOutput("Vision/" + cameraName + "/Accepted", accepted);
     if (!accepted) {
       return;

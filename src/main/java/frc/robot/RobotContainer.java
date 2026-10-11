@@ -4,6 +4,7 @@
 
 package frc.robot;
 
+import edu.wpi.first.wpilibj.DriverStation;
 import edu.wpi.first.wpilibj2.command.Command;
 import edu.wpi.first.wpilibj2.command.button.CommandPS5Controller;
 import edu.wpi.first.wpilibj2.command.button.CommandXboxController;
@@ -69,8 +70,19 @@ public class RobotContainer {
     shooterSubsystem.setDefaultCommand(
         new ShooterStateMachine(shooterSubsystem, visionSubsystem));
 
+    // Home the intake arm on the first enable, and again on the next enable if homing failed. The
+    // operator can also retry it without a disable (create button).
+    new Trigger(DriverStation::isEnabled)
+        .and(() -> !intakeSubsystem.isArmHomed())
+        .onTrue(intakeSubsystem.homeArmCommand());
+
     // Driver Bindings
-    driverController.x().onTrue(swerveSubsystem.runOnce(() -> visionSubsystem.zeroPoseToMT1()));
+    driverController
+        .x()
+        .onTrue(
+            swerveSubsystem
+                .runOnce(() -> visionSubsystem.zeroPoseToMT1())
+                .ignoringDisable(true));
     Trigger shootTrigger = driverController.rightTrigger();
     shootTrigger
         .and(() -> stateHandler.scoringMode == ScoringMode.RANGED)
@@ -87,6 +99,7 @@ public class RobotContainer {
     operatorController.triangle().onTrue(stateHandler.setScoringMode(ScoringMode.FERRY));
     operatorController.options().onTrue(intakeSubsystem.stowCommand());
     operatorController.square().onTrue(shooterSubsystem.homeHoodCommand());
+    operatorController.create().onTrue(intakeSubsystem.homeArmCommand());
   }
 
   /**
