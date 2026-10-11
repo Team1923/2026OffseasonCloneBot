@@ -156,34 +156,42 @@ public final class ShooterSubsystem extends SubsystemBase {
   public Command homeHoodCommand() {
     Debouncer stopped = new Debouncer(ShooterConstants.HOOD_HOMING_STOPPED_SECONDS);
     Timer timer = new Timer();
+    // The encoder reads 0 at boot, right on the reverse soft limit, so homing must ignore the soft
+    // limits or the hood never moves and gets "homed" wherever it already sits.
+    VoltageOut homingRequest =
+        new VoltageOut(ShooterConstants.HOOD_HOMING_VOLTS).withIgnoreSoftwareLimits(true);
+    // withTimeout ends the command normally, not as an interrupt, so success is tracked here.
+    boolean[] foundHardStop = {false};
 
     return runOnce(
             () -> {
               timer.restart();
               stopped.calculate(false);
+              foundHardStop[0] = false;
             })
         .andThen(
-            run(() -> io.setHoodControl(new VoltageOut(ShooterConstants.HOOD_HOMING_VOLTS)))
+            run(() -> io.setHoodControl(homingRequest))
                 .until(
                     () ->
                         // Ignore "stopped" until the hood has had time to start moving, otherwise
                         // it finishes immediately against its own standstill.
-                        timer.hasElapsed(ShooterConstants.HOOD_HOMING_MIN_MOVE_SECONDS)
-                            && stopped.calculate(
-                                Math.abs(inputs.hoodVelocityDegreesPerSecond)
-                                    < ShooterConstants
-                                        .HOOD_HOMING_STOPPED_DEGREES_PER_SECOND)))
+                        foundHardStop[0] =
+                            timer.hasElapsed(ShooterConstants.HOOD_HOMING_MIN_MOVE_SECONDS)
+                                && stopped.calculate(
+                                    Math.abs(inputs.hoodVelocityDegreesPerSecond)
+                                        < ShooterConstants
+                                            .HOOD_HOMING_STOPPED_DEGREES_PER_SECOND)))
         .withTimeout(ShooterConstants.HOOD_HOMING_TIMEOUT_SECONDS)
         .finallyDo(
             interrupted -> {
               io.setHoodControl(new VoltageOut(0));
-              if (interrupted) {
+              if (!foundHardStop[0]) {
                 // Timed out or was cancelled: the zero is unknown, so leave the encoder alone.
                 DriverStation.reportWarning("Hood homing did not find the hard stop.", false);
               } else {
                 io.setHoodPosition(0);
               }
-              Logger.recordOutput("Shooter/Hood/Homed", !interrupted);
+              Logger.recordOutput("Shooter/Hood/Homed", foundHardStop[0]);
             })
         .withName("ShooterHomeHood");
   }
