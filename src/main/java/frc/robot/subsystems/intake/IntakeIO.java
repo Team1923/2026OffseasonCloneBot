@@ -5,6 +5,7 @@ import com.ctre.phoenix6.StatusSignal;
 import com.ctre.phoenix6.controls.ControlRequest;
 import com.ctre.phoenix6.hardware.TalonFX;
 import edu.wpi.first.math.filter.Debouncer;
+import edu.wpi.first.math.filter.Debouncer.DebounceType;
 import edu.wpi.first.math.system.plant.DCMotor;
 import edu.wpi.first.math.util.Units;
 import edu.wpi.first.units.measure.Angle;
@@ -13,6 +14,7 @@ import edu.wpi.first.units.measure.Current;
 import edu.wpi.first.units.measure.Temperature;
 import edu.wpi.first.units.measure.Voltage;
 import frc.robot.Constants.IntakeConstants;
+import frc.robot.lib.phoenix.PhoenixUtil;
 import frc.robot.lib.sim.TalonFXMotorSim;
 import org.littletonrobotics.junction.LogTable;
 import org.littletonrobotics.junction.inputs.LoggableInputs;
@@ -112,12 +114,14 @@ public interface IntakeIO {
     private final StatusSignal<Current> rollerStatorCurrent = roller.getStatorCurrent();
     private final StatusSignal<Temperature> rollerTemperature = roller.getDeviceTemp();
 
-    private final Debouncer armConnectedDebounce = new Debouncer(0.5);
-    private final Debouncer rollerConnectedDebounce = new Debouncer(0.5);
+    private final Debouncer armConnectedDebounce = new Debouncer(0.5, DebounceType.kFalling);
+    private final Debouncer rollerConnectedDebounce = new Debouncer(0.5, DebounceType.kFalling);
 
     public Real() {
-      arm.getConfigurator().apply(IntakeConstants.ARM_CONFIG);
-      roller.getConfigurator().apply(IntakeConstants.ROLLER_CONFIG);
+      PhoenixUtil.tryUntilOk(
+          "Intake arm config", () -> arm.getConfigurator().apply(IntakeConstants.ARM_CONFIG));
+      PhoenixUtil.tryUntilOk(
+          "Intake roller config", () -> roller.getConfigurator().apply(IntakeConstants.ROLLER_CONFIG));
     }
 
     @Override

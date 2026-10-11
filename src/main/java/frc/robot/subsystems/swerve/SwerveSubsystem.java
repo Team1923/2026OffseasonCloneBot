@@ -301,8 +301,12 @@ public class SwerveSubsystem extends SubsystemBase {
          * disabled.
          * This ensures driving behavior doesn't change until an explicit disable event
          * occurs during testing.
+         * Wait until the DS reports an alliance: isRedAlliance defaults to blue before
+         * then, and latching that default after a mid-match restart would leave red
+         * driving inverted for the rest of the match.
          */
-        if (!m_hasAppliedOperatorPerspective || DriverStation.isDisabled()) {
+        if ((!m_hasAppliedOperatorPerspective || DriverStation.isDisabled())
+                && DriverStation.getAlliance().isPresent()) {
             io.setOperatorPerspectiveForward(
                     stateHandler.isRedAlliance
                             ? kRedAlliancePerspectiveRotation
@@ -341,7 +345,21 @@ public class SwerveSubsystem extends SubsystemBase {
         return robotRelativeHeading.plus(getPose().getRotation());
     }
 
+    /**
+     * Drives from wherever the robot is when this starts to {@code waypoint}. The path is built at
+     * schedule time, not when this factory is called, so the command can be bound to a button.
+     */
     public Command onTheFlyPath(Pose2d waypoint) {
+        return defer(() -> buildOnTheFlyPath(waypoint));
+    }
+
+    private Command buildOnTheFlyPath(Pose2d waypoint) {
+        if (!AutoBuilder.isConfigured()) {
+            // followPath throws when AutoBuilder failed to configure, and this runs inside the
+            // scheduler, so an exception here would crash robot code mid-match.
+            DriverStation.reportError("AutoBuilder is not configured; skipping on-the-fly path", false);
+            return Commands.none();
+        }
 
         // List<Waypoint> waypoints = PathPlannerPath.waypointsFromPoses(
         // getPose(),
