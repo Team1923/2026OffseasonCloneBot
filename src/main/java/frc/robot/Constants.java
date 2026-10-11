@@ -84,8 +84,22 @@ public final class Constants {
     public static final int ARM_MOTOR_ID = 15;
     public static final int ROLLER_MOTOR_ID = 16;
 
-    public static final double ARM_GEAR_RATIO = 1.0;
-    public static final double ROLLER_GEAR_RATIO = 1.0; // TODO: get from CAD
+    // Gear ratios are motor rotations per mechanism rotation.
+    public static final double ARM_GEAR_RATIO = 20.0;
+    public static final double ROLLER_GEAR_RATIO = 2.0;
+    // Software limits, in degrees from the boot/stowed zero. Assumes positive = deploying.
+    // TODO: confirm the arm moves positive when deploying before enabling.
+    public static final double ARM_MIN_DEGREES = 0.0;
+    public static final double ARM_MAX_DEGREES = 120.0;
+    // Arm angle (from the stowed zero) where the arm is parallel to the ground, sticking out.
+    public static final double ARM_LEVEL_DEGREES = 120.0;
+    // Arm_Cosine applies kG * cos(position + offset), and Phoenix only accepts offsets of -90 to 90.
+    // Holding torque here is -kG * cos(position - level): the minus is because positive (deploying)
+    // LOWERS the arm once it is past vertical. Since cos(x - 180) = -cos(x), that equals
+    // kG * cos(position + (180 - level)), so the offset is 180 - level with kG kept positive.
+    // At 120: offset 60, vertical at 30 degrees gets no kG, and stowed (0, leaning back) is pushed
+    // toward deploying. Valid for a level angle between 90 and 270 degrees.
+    public static final double ARM_GRAVITY_OFFSET_DEGREES = 180.0 - ARM_LEVEL_DEGREES;
     public static final double ARM_POSITION_TOLERANCE_DEGREES = 3.0;
     public static final double ARM_ZERO_OFFSET_DEGREES = 0.0; // TODO: calibrate
 
@@ -95,8 +109,8 @@ public final class Constants {
 
     public static final TalonFXConfiguration ARM_CONFIG =
         new TalonFXConfiguration()
-            // Mechanism units: 1 rotation = 360 degrees. Cruise 0.75 rot/s = 270 deg/s, reaching
-            // cruise in 0.25 s. TODO: tune once the arm travel and gear ratio are known.
+            // Mechanism units: 1 rotation = 360 degrees. Cruise 0.75 rot/s = 270 deg/s (15 motor
+            // rot/s at 20:1), reaching cruise in 0.25 s. TODO: tune.
             .withMotionMagic(
                 new MotionMagicConfigs()
                     .withMotionMagicCruiseVelocity(0.75)
@@ -104,8 +118,8 @@ public final class Constants {
                     .withMotionMagicJerk(0))
             // Starting points only, all assume ARM_GEAR_RATIO. Tune on the robot in this order:
             // kG (holds the arm level), kS, then kP. kP 144 = 4 V at 10 degrees of error.
-            // kG is only correct if position 0 is horizontal, because Arm_Cosine scales it by
-            // cos(position). TODO: measure all four.
+            // kG uses ARM_GRAVITY_OFFSET_DEGREES (see above): tune it with the arm held level.
+            // TODO: measure all four.
             .withSlot0(
                 new Slot0Configs()
                     .withKP(144)
@@ -114,7 +128,9 @@ public final class Constants {
                     .withKV(0)
                     .withKS(0.2)
                     .withKG(0.4)
-                    .withGravityType(GravityTypeValue.Arm_Cosine))
+                    .withGravityType(GravityTypeValue.Arm_Cosine)
+                    .withGravityArmPositionOffset(
+                        Units.degreesToRotations(ARM_GRAVITY_OFFSET_DEGREES)))
             .withMotorOutput(
                 new MotorOutputConfigs()
                     .withNeutralMode(NeutralModeValue.Coast)
@@ -130,8 +146,8 @@ public final class Constants {
                 new SoftwareLimitSwitchConfigs()
                     .withForwardSoftLimitEnable(true)
                     .withReverseSoftLimitEnable(true)
-                    .withForwardSoftLimitThreshold(1)
-                    .withReverseSoftLimitThreshold(-0.37));
+                    .withForwardSoftLimitThreshold(Units.degreesToRotations(ARM_MAX_DEGREES))
+                    .withReverseSoftLimitThreshold(Units.degreesToRotations(ARM_MIN_DEGREES)));
 
     public static final TalonFXConfiguration ROLLER_CONFIG =
         new TalonFXConfiguration()
@@ -154,7 +170,7 @@ public final class Constants {
 
   public static final class RollersConstants {
     public static final int MOTOR_ID = 17; // TODO: placeholder ID, unique so sim devices don't collide
-    public static final double GEAR_RATIO = 1.0; // TODO: get from CAD
+    public static final double GEAR_RATIO = 3.0; // motor rotations per roller rotation
     public static final double RPM_TOLERANCE = 100.0; // TODO: tune
 
     // Simulation-only mechanism inertia. TODO: estimate from CAD
@@ -174,10 +190,15 @@ public final class Constants {
                 new MotorOutputConfigs()
                     .withInverted(InvertedValue.Clockwise_Positive)
                     .withNeutralMode(NeutralModeValue.Coast))
-            // Starting points only. kV 0.12 = 12 V / 100 rot/s free speed (Kraken X60), scaled by
-            // GEAR_RATIO once it is known. kS is higher than a flywheel because this drags game
-            // pieces. TODO: tune kS, then kV, then kP.
-            .withSlot0(new Slot0Configs().withKS(0.25).withKV(0.12).withKP(0.10));
+            // Starting points only. Velocity gains are per MECHANISM rot/s, so the per-motor values
+            // (kV 0.12 = 12 V / 100 rot/s Kraken X60 free speed, kP 0.10) are scaled by GEAR_RATIO.
+            // kS is higher than a flywheel because this drags game pieces.
+            // TODO: tune kS, then kV, then kP.
+            .withSlot0(
+                new Slot0Configs()
+                    .withKS(0.25)
+                    .withKV(0.12 * GEAR_RATIO)
+                    .withKP(0.10 * GEAR_RATIO));
 
     private RollersConstants() {}
   }
@@ -190,8 +211,14 @@ public final class Constants {
     public static final int DRUM_FOLLOWER_TWO_ID = 13;
     public static final int DRUM_FOLLOWER_THREE_ID = 14;
 
-    public static final double HOOD_GEAR_RATIO = 1.0; // TODO: get from CAD
-    public static final double DRUM_GEAR_RATIO = 1.0; // TODO: get from CAD
+    // Gear ratios are motor rotations per mechanism rotation.
+    public static final double HOOD_GEAR_RATIO = 5.0 / 2.0;
+    public static final double DRUM_GEAR_RATIO = 13.0 / 9.0;
+    // TODO: the two feed roller motors are not in code yet; use this when they are added.
+    public static final double FEED_GEAR_RATIO = 5.0 / 2.0;
+    // Software limits. 0 is the homed hard stop.
+    public static final double HOOD_MIN_DEGREES = 0.0;
+    public static final double HOOD_MAX_DEGREES = 37.0;
     public static final double HOOD_TOLERANCE_DEGREES = 0.5;
 
     // Hood homing: drive gently into the 0 degree hard stop, then call that position zero.
@@ -208,7 +235,7 @@ public final class Constants {
 
     public static final TalonFXConfiguration HOOD_CONFIG =
         new TalonFXConfiguration()
-            // Mechanism units: 1 rotation = 360 degrees, and the hood travels 36 degrees total.
+            // Mechanism units: 1 rotation = 360 degrees, and the hood travels 37 degrees total.
             // Cruise 1 rot/s crosses the full range in about 0.1 s. TODO: tune.
             .withMotionMagic(
                 new MotionMagicConfigs()
@@ -236,8 +263,8 @@ public final class Constants {
                 new SoftwareLimitSwitchConfigs()
                     .withForwardSoftLimitEnable(true)
                     .withReverseSoftLimitEnable(true)
-                    .withForwardSoftLimitThreshold(Units.degreesToRotations(36))
-                    .withReverseSoftLimitThreshold(Units.degreesToRotations(0)));
+                    .withForwardSoftLimitThreshold(Units.degreesToRotations(HOOD_MAX_DEGREES))
+                    .withReverseSoftLimitThreshold(Units.degreesToRotations(HOOD_MIN_DEGREES)));
 
     public static final TalonFXConfiguration DRUM_CONFIG =
         new TalonFXConfiguration()
@@ -247,11 +274,17 @@ public final class Constants {
                     .withSupplyCurrentLimitEnable(true)
                     .withStatorCurrentLimit(120)
                     .withSupplyCurrentLimit(60))
-            // Starting points only. kV 0.115 is just under the theoretical 12 V / 100 rot/s free
-            // speed (Kraken X60) so the loop undershoots rather than oscillates; scale by
-            // DRUM_GEAR_RATIO once known. TODO: tune kS, then kV, then kP.
+            // Starting points only. kV 0.115 per motor rot/s is just under the theoretical 12 V /
+            // 100 rot/s free speed (Kraken X60) so the loop undershoots rather than oscillates.
+            // Velocity gains are per MECHANISM rot/s, so kV and kP are scaled by DRUM_GEAR_RATIO.
+            // TODO: tune kS, then kV, then kP.
             .withSlot0(
-                new Slot0Configs().withKP(0.10).withKI(0).withKD(0).withKV(0.115).withKS(0.15))
+                new Slot0Configs()
+                    .withKP(0.10 * DRUM_GEAR_RATIO)
+                    .withKI(0)
+                    .withKD(0)
+                    .withKV(0.115 * DRUM_GEAR_RATIO)
+                    .withKS(0.15))
             .withMotorOutput(
                 new MotorOutputConfigs()
                     .withNeutralMode(NeutralModeValue.Coast)
