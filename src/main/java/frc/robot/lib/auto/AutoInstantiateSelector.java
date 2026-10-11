@@ -13,6 +13,7 @@ import edu.wpi.first.wpilibj2.command.Commands;
 import frc.robot.commands.autos.LDoubleNZ;
 import frc.robot.commands.autos.RDoubleNZ;
 import frc.robot.subsystems.swerve.SwerveSubsystem;
+import frc.robot.subsystems.vision.VisionSubsystem;
 import java.util.function.Supplier;
 import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
@@ -81,10 +82,17 @@ public final class AutoInstantiateSelector {
                         firstPath.getPoint(0).position,
                         firstPath.getIdealStartingState().rotation()));
 
+    // Skip the reset when vision already seeded the pose, since a multi-tag estimate of where the
+    // robot really is beats the nominal start pose.
     loadedCommand =
         Commands.sequence(
                 SwerveSubsystem.getInstance()
-                    .runOnce(() -> SwerveSubsystem.getInstance().resetPose(startPose)),
+                    .runOnce(
+                        () -> {
+                          if (!VisionSubsystem.getInstance().hasSeededPose()) {
+                            SwerveSubsystem.getInstance().resetPose(startPose);
+                          }
+                        }),
                 mode.routine.get())
             .withName(mode.displayName);
   }
