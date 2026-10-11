@@ -4,9 +4,13 @@
 
 package frc.robot.subsystems.shooter;
 
-import com.ctre.phoenix6.controls.PositionVoltage;
+import com.ctre.phoenix6.controls.MotionMagicVoltage;
 import com.ctre.phoenix6.controls.VelocityVoltage;
+import com.ctre.phoenix6.controls.VoltageOut;
+import edu.wpi.first.math.filter.Debouncer;
 import edu.wpi.first.math.util.Units;
+import edu.wpi.first.wpilibj.DriverStation;
+import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.Alert;
 import edu.wpi.first.wpilibj.Alert.AlertType;
 import edu.wpi.first.wpilibj2.command.Command;
@@ -38,20 +42,21 @@ public final class ShooterSubsystem extends SubsystemBase {
     SHOOTING(degreesRequest(0)), // TODO: replace with shot model
     FERRY(degreesRequest(0)); // TODO: tune
 
-    public final PositionVoltage request;
+    public final MotionMagicVoltage request;
 
-    ShooterHoodState(PositionVoltage request) {
+    ShooterHoodState(MotionMagicVoltage request) {
       this.request = request;
     }
 
-    private static PositionVoltage degreesRequest(double degrees) {
-      return new PositionVoltage(Units.degreesToRotations(degrees));
+    /** Motion Magic profiles the move, so interpolation-sized steps stay smooth. */
+    private static MotionMagicVoltage degreesRequest(double degrees) {
+      return new MotionMagicVoltage(Units.degreesToRotations(degrees));
     }
   }
 
   public enum ShooterDrumState {
     IDLE(rpmRequest(0)),
-    WARMING(rpmRequest(0)), // TODO: tune - slow velocity of wheels always running
+    WARMING(rpmRequest(0)), // TODO: tune - slow velocity of wheels always running, try ~1500 RPM
     SHOOTING(rpmRequest(0)), // TODO: replace with shot model
     FERRY(rpmRequest(0)); // TODO: tune
 
@@ -141,6 +146,54 @@ public final class ShooterSubsystem extends SubsystemBase {
         && configuredSetpoint
         && atHoodState(stateHandler.desiredShooterHoodState)
         && atDrumState(stateHandler.desiredShooterDrumState);
+  }
+
+  /**
+   * Drives the hood gently into its 0 degree hard stop and calls that position zero. Requires the
+   * subsystem, so it interrupts the state machine while it runs. Run it once before tuning or
+   * driving; without it, every hood angle is offset by wherever the hood sat at boot.
+   */
+  public Command homeHoodCommand() {
+    Debouncer stopped = new Debouncer(ShooterConstants.HOOD_HOMING_STOPPED_SECONDS);
+    Timer timer = new Timer();
+    // The encoder reads 0 at boot, right on the reverse soft limit, so homing must ignore the soft
+    // limits or the hood never moves and gets "homed" wherever it already sits.
+    VoltageOut homingRequest =
+        new VoltageOut(ShooterConstants.HOOD_HOMING_VOLTS).withIgnoreSoftwareLimits(true);
+    // withTimeout ends the command normally, not as an interrupt, so success is tracked here.
+    boolean[] foundHardStop = {false};
+
+    return runOnce(
+            () -> {
+              timer.restart();
+              stopped.calculate(false);
+              foundHardStop[0] = false;
+            })
+        .andThen(
+            run(() -> io.setHoodControl(homingRequest))
+                .until(
+                    () ->
+                        // Ignore "stopped" until the hood has had time to start moving, otherwise
+                        // it finishes immediately against its own standstill.
+                        foundHardStop[0] =
+                            timer.hasElapsed(ShooterConstants.HOOD_HOMING_MIN_MOVE_SECONDS)
+                                && stopped.calculate(
+                                    Math.abs(inputs.hoodVelocityDegreesPerSecond)
+                                        < ShooterConstants
+                                            .HOOD_HOMING_STOPPED_DEGREES_PER_SECOND)))
+        .withTimeout(ShooterConstants.HOOD_HOMING_TIMEOUT_SECONDS)
+        .finallyDo(
+            interrupted -> {
+              io.setHoodControl(new VoltageOut(0));
+              if (!foundHardStop[0]) {
+                // Timed out or was cancelled: the zero is unknown, so leave the encoder alone.
+                DriverStation.reportWarning("Hood homing did not find the hard stop.", false);
+              } else {
+                io.setHoodPosition(0);
+              }
+              Logger.recordOutput("Shooter/Hood/Homed", foundHardStop[0]);
+            })
+        .withName("ShooterHomeHood");
   }
 
   public Command shootCommand() {

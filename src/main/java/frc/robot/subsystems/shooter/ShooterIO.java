@@ -101,6 +101,9 @@ public interface ShooterIO {
   /** Sends a Phoenix control request to the drum leader; the followers mirror it. */
   default void setDrumControl(ControlRequest request) {}
 
+  /** Seeds the hood encoder with a known mechanism angle, used by homing. */
+  default void setHoodPosition(double degrees) {}
+
   /** Real shooter hardware: a TalonFX hood and a leader + three follower TalonFX drum. */
   class Real implements ShooterIO {
     protected final TalonFX hoodMotor = new TalonFX(ShooterConstants.HOOD_MOTOR_ID);
@@ -198,6 +201,11 @@ public interface ShooterIO {
     @Override
     public void setDrumControl(ControlRequest request) {
       drumLeader.setControl(request);
+    }
+
+    @Override
+    public void setHoodPosition(double degrees) {
+      hoodMotor.setPosition(Units.degreesToRotations(degrees));
     }
   }
 
