@@ -180,8 +180,9 @@ public final class Constants {
     public static final double SIM_MOI_KG_METERS_SQUARED = 0.002;
 
     public static final TalonFXConfiguration MOTOR_CONFIG = motorConfig(GEAR_RATIO);
-    // Feeder motors run as followers of the floor roller, so their slot gains are unused; the
-    // gear ratio only scales their logged position/velocity.
+    // Feeder motors run as followers of the floor roller, so their slot gains and inversion are
+    // ignored (direction comes from MotorAlignmentValue in RollersIO); the gear ratio only scales
+    // their reported position/velocity.
     public static final TalonFXConfiguration FEEDER_MOTOR_CONFIG = motorConfig(FEEDER_GEAR_RATIO);
 
     private static TalonFXConfiguration motorConfig(double gearRatio) {
@@ -223,8 +224,6 @@ public final class Constants {
     // Gear ratios are motor rotations per mechanism rotation.
     public static final double HOOD_GEAR_RATIO = 5.0 / 2.0;
     public static final double DRUM_GEAR_RATIO = 13.0 / 9.0;
-    // TODO: the two feed roller motors are not in code yet; use this when they are added.
-    public static final double FEED_GEAR_RATIO = 5.0 / 2.0;
     // Software limits. 0 is the homed hard stop.
     public static final double HOOD_MIN_DEGREES = 0.0;
     public static final double HOOD_MAX_DEGREES = 37.0;

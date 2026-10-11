@@ -33,15 +33,20 @@ public final class RollersSubsystem extends SubsystemBase {
   }
 
   public enum RollerFloorState {
-    REST(rpmRequest(0)),
-    INTAKE(rpmRequest(0)), // TODO: measure and tune all these values, try ~800 RPM
-    FEED(rpmRequest(0)), // TODO: try ~1200 RPM, must outpace what the drum consumes
-    EJECT(rpmRequest(0)); // TODO: try ~-1000 RPM
+    REST(rpmRequest(0), false),
+    // Feeders stay off while intaking so pieces are not pushed into a drum that is not spinning.
+    INTAKE(rpmRequest(0), false), // TODO: measure and tune all these values, try ~800 RPM
+    FEED(rpmRequest(0), true), // TODO: try ~1200 RPM, must outpace what the drum consumes
+    EJECT(rpmRequest(0), true); // TODO: try ~-1000 RPM
 
     public final VelocityVoltage request;
 
-    RollerFloorState(VelocityVoltage request) {
+    /** Whether the feeder motors follow the floor roller in this state. */
+    public final boolean feedersEnabled;
+
+    RollerFloorState(VelocityVoltage request, boolean feedersEnabled) {
       this.request = request;
+      this.feedersEnabled = feedersEnabled;
     }
 
     private static VelocityVoltage rpmRequest(double rpm) {
@@ -55,6 +60,10 @@ public final class RollersSubsystem extends SubsystemBase {
 
   private final Alert floorDisconnectedAlert =
       new Alert("Roller floor motor disconnected", AlertType.kError);
+  private final Alert[] feederDisconnectedAlerts = {
+    new Alert("Roller feeder one motor disconnected", AlertType.kError),
+    new Alert("Roller feeder two motor disconnected", AlertType.kError)
+  };
 
   private RollersSubsystem(RollersIO io) {
     this.io = io;
@@ -66,6 +75,9 @@ public final class RollersSubsystem extends SubsystemBase {
     Logger.processInputs("Rollers", inputs);
 
     floorDisconnectedAlert.set(!inputs.floorConnected);
+    for (int i = 0; i < RollersIO.FEEDER_MOTOR_COUNT; i++) {
+      feederDisconnectedAlerts[i].set(!inputs.feederConnected[i]);
+    }
   }
 
   public double getSpeedRpm() {
@@ -75,6 +87,7 @@ public final class RollersSubsystem extends SubsystemBase {
   /** Applies the desired state. Ordinary commands request states instead of calling this. */
   public void applyState(RollerFloorState desiredState) {
     io.setFloorControl(desiredState.request);
+    io.setFeedersEnabled(desiredState.feedersEnabled);
     Logger.recordOutput("Rollers/Floor/AppliedState", desiredState);
     Logger.recordOutput("Rollers/Floor/SetpointRpm", desiredState.request.Velocity * 60.0);
   }
