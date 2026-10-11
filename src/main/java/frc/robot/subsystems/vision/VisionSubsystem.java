@@ -114,20 +114,16 @@ public final class VisionSubsystem extends SubsystemBase {
   /** Distance-map RPM plus a feedforward for the measured radial backing velocity. */
   public double getShootOnTheMoveRPM() {
     double backingSpeed = getBoundedSotmBackingSpeed();
-    double rpm = getRPM() + ShooterConstants.SOTM_RPM_PER_METER_PER_SECOND * backingSpeed;
+    // The applied drum and hood setpoints are logged under Shooter/Drum and Shooter/Hood.
     Logger.recordOutput("Shooter/SOTM/BackingSpeedMetersPerSecond", backingSpeed);
-    Logger.recordOutput("Shooter/SOTM/DrumSetpointRpm", rpm);
-    return rpm;
+    return getRPM() + ShooterConstants.SOTM_RPM_PER_METER_PER_SECOND * backingSpeed;
   }
 
   /** Distance-map hood angle plus a feedforward for the measured radial backing velocity. */
   public double getShootOnTheMoveHoodAngle() {
     double backingSpeed = getBoundedSotmBackingSpeed();
-    double angle =
-        getHoodAngle()
-            + ShooterConstants.SOTM_HOOD_DEGREES_PER_METER_PER_SECOND * backingSpeed;
-    Logger.recordOutput("Shooter/SOTM/HoodSetpointDegrees", angle);
-    return angle;
+    return getHoodAngle()
+        + ShooterConstants.SOTM_HOOD_DEGREES_PER_METER_PER_SECOND * backingSpeed;
   }
 
   private double getBoundedSotmBackingSpeed() {

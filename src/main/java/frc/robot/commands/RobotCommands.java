@@ -52,7 +52,10 @@ public final class RobotCommands {
         .withName("ShootGamePieces");
   }
 
-
+  /**
+   * Feeds game pieces between the SOTM and SOTM_END Choreo events. The shooter setpoints are held
+   * by {@link #autoShooterCommand()}, which runs for the whole auto routine.
+   */
   public static Command shootOnTheMoveCommand() {
     ShooterSubsystem shooter = ShooterSubsystem.getInstance();
     RollersSubsystem rollers = RollersSubsystem.getInstance();
@@ -64,8 +67,8 @@ public final class RobotCommands {
 
     StateHandler stateHandler = StateHandler.getInstance();
 
-    return Commands.parallel(
-            shooter.shootOnTheMoveCommand(), rollers.feedWhenAllowedCommand(feedAllowed))
+    return rollers
+        .feedWhenAllowedCommand(feedAllowed)
         .beforeStarting(() -> stateHandler.shootOnTheMoveActive = true)
         .until(() -> !stateHandler.shootOnTheMoveActive || !DriverStation.isAutonomousEnabled())
         .finallyDo(interrupted -> stateHandler.shootOnTheMoveActive = false)
@@ -73,18 +76,43 @@ public final class RobotCommands {
         .withName("ShootOnTheMove");
   }
 
-  /** Spins up the drum and tracks the SOTM hood setpoint without feeding game pieces. */
+  /**
+   * Arms the SOTM shooter setpoints (drum spin-up and hood tracking) without feeding. This is a
+   * flag rather than a held command because PathPlanner cancels event commands when a path ends,
+   * and the drum has to stay spun up into the next path's SOTM event.
+   */
   public static Command prepareShootOnTheMoveCommand() {
-    return ShooterSubsystem.getInstance()
-        .shootOnTheMoveCommand()
+    return Commands.runOnce(() -> StateHandler.getInstance().shootOnTheMovePrepared = true)
         .onlyIf(DriverStation::isAutonomousEnabled)
         .withName("PrepareShootOnTheMove");
   }
 
-  /** Ends the SOTM window; the running SOTM command then performs its normal safe cleanup. */
+  /** Ends the SOTM window: stops feeding and lets the drum spin down until the next SOTM_PREP. */
   public static Command stopShootOnTheMoveCommand() {
-    return Commands.runOnce(() -> StateHandler.getInstance().shootOnTheMoveActive = false)
+    return Commands.runOnce(
+            () -> {
+              StateHandler stateHandler = StateHandler.getInstance();
+              stateHandler.shootOnTheMoveActive = false;
+              stateHandler.shootOnTheMovePrepared = false;
+            })
         .withName("StopShootOnTheMove");
+  }
+
+  /**
+   * Holds the SOTM shooter setpoints while the SOTM_PREP/SOTM window is open and stows otherwise.
+   * Run alongside an entire SOTM auto routine; clears the SOTM flags when the routine ends.
+   */
+  public static Command autoShooterCommand() {
+    StateHandler stateHandler = StateHandler.getInstance();
+    return ShooterSubsystem.getInstance()
+        .shootOnTheMoveWhenArmedCommand(
+            () -> stateHandler.shootOnTheMovePrepared || stateHandler.shootOnTheMoveActive)
+        .finallyDo(
+            interrupted -> {
+              stateHandler.shootOnTheMoveActive = false;
+              stateHandler.shootOnTheMovePrepared = false;
+            })
+        .withName("AutoShooter");
   }
 
   /** Runs the fixed ferry shot and feeds once the shooter reaches its setpoints. */

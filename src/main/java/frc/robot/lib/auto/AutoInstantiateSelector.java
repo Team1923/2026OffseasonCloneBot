@@ -18,8 +18,8 @@ import org.littletonrobotics.junction.networktables.LoggedDashboardChooser;
 
 public final class AutoInstantiateSelector {
   private enum AutoMode {
-    SOTM_L_DOUBLE_NZ("SOTM LDoubleNZ", LDoubleNZ::new, "SOTM_L_TrenchToL_Shoot"),
-    SOTM_R_DOUBLE_NZ("SOTM RDoubleNZ", RDoubleNZ::new, "SOTM_R_TrenchToR_Shoot");
+    SOTM_L_DOUBLE_NZ("SOTM LDoubleNZ", LDoubleNZ::new, LDoubleNZ.FIRST_TRAJECTORY),
+    SOTM_R_DOUBLE_NZ("SOTM RDoubleNZ", RDoubleNZ::new, RDoubleNZ.FIRST_TRAJECTORY);
 
     private final String displayName;
     private final Supplier<Command> routine;
@@ -63,7 +63,10 @@ public final class AutoInstantiateSelector {
 
     PathPlannerPath selectedPath = AutoHelpers.choreoToPathPlannerConverter(mode.firstPath);
     if (selectedPath == null) {
-      loadedCommand = Commands.print("Path not found: " + mode.firstPath);
+      // Run the rest of the routine from the current odometry pose rather than sitting still.
+      DriverStation.reportError(
+          "Auto start path not found, skipping odometry reset: " + mode.firstPath, false);
+      loadedCommand = mode.routine.get().withName(mode.displayName);
       return;
     }
 

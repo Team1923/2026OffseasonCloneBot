@@ -32,7 +32,7 @@ public class Robot extends LoggedRobot {
    */
   public Robot() {
     // AdvantageKit must be started before any subsystem or IO is constructed. On the desktop this
-    // starts normal simulation immediately unless replay settings were supplied externally.
+    // waits for Start in SmartDashboard > Robot Startup (simulate or replay, and where to log).
     stateHandler.robotMode = LoggingStartup.start(this);
 
     // Log running commands so logs identify the active actions

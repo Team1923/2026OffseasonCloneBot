@@ -4,23 +4,27 @@
 
 package frc.robot.commands.autos;
 
+import edu.wpi.first.wpilibj2.command.Commands;
 import edu.wpi.first.wpilibj2.command.SequentialCommandGroup;
+import frc.robot.commands.RobotCommands;
 import frc.robot.lib.auto.AutoHelpers;
 
 /**
- * Left-side path sequence. Scoring actions will be added when the autonomous command logic is
- * implemented.
+ * Left-side shoot-on-the-move auto: three Choreo paths whose SOTM_PREP / SOTM / SOTM_END / INTAKE
+ * event markers drive intaking and scoring. The shooter setpoints are held across path boundaries
+ * by {@link RobotCommands#autoShooterCommand()}.
  */
 public class LDoubleNZ extends SequentialCommandGroup {
+  /** First trajectory followed; the auto selector resets odometry to its start pose. */
+  public static final String FIRST_TRAJECTORY = "SOTM_L_TrenchToL_Shoot";
+
   public LDoubleNZ() {
     addCommands(
-        follow("SOTM_L_TrenchToL_Shoot"),
-        follow("SOTM_L_Shoot2ndPass"),
-        follow("SOTM_L_Shoot3rdPass"));
-  }
-
-  private static edu.wpi.first.wpilibj2.command.Command follow(String trajectoryName) {
-    return AutoHelpers.commandPathFromCatchesErrors(
-        AutoHelpers.choreoToPathPlannerConverter(trajectoryName));
+        Commands.deadline(
+            Commands.sequence(
+                AutoHelpers.followChoreo(FIRST_TRAJECTORY),
+                AutoHelpers.followChoreo("SOTM_L_Shoot2ndPass"),
+                AutoHelpers.followChoreo("SOTM_L_Shoot3rdPass")),
+            RobotCommands.autoShooterCommand()));
   }
 }

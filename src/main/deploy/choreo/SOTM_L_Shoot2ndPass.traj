@@ -322,6 +322,6 @@
  "events":[
    {"name":"SOTM", "from":{"target":0, "targetTimestamp":0.0, "offset":{"exp":"0 s", "val":0.0}}, "event":{"type":"named", "data":{"name":"SOTM"}}},
   {"name":"SOTM_END", "from":{"target":1, "targetTimestamp":4.77466, "offset":{"exp":"0 s", "val":0.0}}, "event":{"type":"named", "data":{"name":"SOTM_END"}}},
-  {"name":"INTAKE", "from":{"target":1, "targetTimestamp":4.77466, "offset":{"exp":"0 s", "val":0.0}}, "event":{"type":"named", "data":{"name":"INTAKE"}}},
+  {"name":"INTAKE", "from":{"target":1, "targetTimestamp":4.77466, "offset":{"exp":"0.1 s", "val":0.1}}, "event":{"type":"named", "data":{"name":"INTAKE"}}},
   {"name":"SOTM_PREP", "from":{"target":5, "targetTimestamp":7.38485, "offset":{"exp":"0 s", "val":0.0}}, "event":{"type":"named", "data":{"name":"SOTM_PREP"}}}]
 }

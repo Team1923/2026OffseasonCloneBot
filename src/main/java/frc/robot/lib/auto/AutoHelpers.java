@@ -59,6 +59,11 @@ public final class AutoHelpers {
     return AutoBuilder.followPath(path);
   }
 
+  /** Loads a Choreo trajectory and follows it, skipping it if it fails to load. */
+  public static Command followChoreo(String trajectoryName) {
+    return commandPathFromCatchesErrors(choreoToPathPlannerConverter(trajectoryName));
+  }
+
   public static Command generateBlankCommand() {
     return new Command() {
       @Override
