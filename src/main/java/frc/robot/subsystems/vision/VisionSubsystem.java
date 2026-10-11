@@ -53,6 +53,10 @@ public final class VisionSubsystem extends SubsystemBase {
   private final Alert[] disconnectedAlerts;
   /** Timestamp of the last MegaTag2 frame seen from each camera, so each frame is fused once. */
   private final double[] lastFrameTimestamps;
+  /** Set once the robot is first enabled; after that the gyro heading is already trusted. */
+  private boolean hasBeenEnabled = false;
+  /** Whether the pose was seeded from a multi-tag MegaTag1 estimate before the first enable. */
+  private boolean poseSeeded = false;
 
   /** Cameras are passed in the order front left, front right, rear left, rear right. */
   private VisionSubsystem(
@@ -114,6 +118,11 @@ public final class VisionSubsystem extends SubsystemBase {
     swerve.resetPose(inputs[best].megaTag1Pose);
   }
 
+  /** Whether vision seeded the pose from a multi-tag MegaTag1 estimate before the first enable. */
+  public boolean hasSeededPose() {
+    return poseSeeded;
+  }
+
   /**
    * Index of the connected camera with the best MegaTag1 estimate, or -1 if none has one worth
    * trusting. Lower quality tier wins; ties go to the closer average tag distance. Disconnected
@@ -167,13 +176,18 @@ public final class VisionSubsystem extends SubsystemBase {
 
     // The gyro boots at 0 whichever way the robot faces, and MegaTag2 trusts that heading without
     // ever correcting it. While disabled, seed the whole pose from a multi-tag MegaTag1 estimate so
-    // the heading is right before the match starts.
+    // the heading is right before the match starts. Only before the first enable: after that the
+    // gyro heading is good, and re-seeding in the auto-to-teleop gap would throw away odometry.
+    if (DriverStation.isEnabled()) {
+      hasBeenEnabled = true;
+    }
     boolean seedingPose = false;
-    if (DriverStation.isDisabled()) {
+    if (DriverStation.isDisabled() && !hasBeenEnabled) {
       int best = getBestMt1Camera();
       if (best >= 0 && inputs[best].megaTag1TagCount >= 2) {
         swerve.resetPose(inputs[best].megaTag1Pose);
         seedingPose = true;
+        poseSeeded = true;
       }
     }
     Logger.recordOutput("Vision/SeedingPoseWhileDisabled", seedingPose);
