@@ -23,3 +23,5 @@ class AutoSelectorPublicationTest {
         chooserTable.getEntry("options").getStringArray(new String[0]));
   }
 }
+
+//hello world
